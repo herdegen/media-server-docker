@@ -1,0 +1,232 @@
+# Tout le stack derrière Gluetun (WireGuard Mullvad)
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    environment:
+      - TZ=${TZ}
+      # --- Mullvad + WireGuard ---
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}   # mullvad
+      - VPN_TYPE=${VPN_TYPE}                           # wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      # (optionnel) cible région/ville si tu veux
+      - SERVER_CITIES=${SERVER_CITIES}
+      # DNS: propre avec Mullvad/WG
+      - DOT=off
+      - DNS_ADDRESS=10.64.0.1
+    volumes:
+      - ${GLUETUN_DATA}:/gluetun
+    # Expose ici tous les ports des services qui sont derrière le VPN
+    ports:
+      - "9091:9091"  # Transmission
+      - "9696:9696"  # Prowlarr
+      - "8989:8989"  # Sonarr
+      - "7878:7878"  # Radarr
+      - "8191:8191"  # FlareSolverr (optionnel, pratique pour test)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://1.1.1.1 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - CAPTCHA_SOLVER=none
+      - TZ=${TZ}
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${PROWLARR_CONFIG}:/config
+    network_mode: "service:gluetun"
+    depends_on:
+      flaresolverr:
+        condition: service_started
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${SONARR_CONFIG}:/config
+      - ${MEDIA_TV}:/tv
+      - ${MEDIA_DOWNLOADS}:/downloads
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${RADARR_CONFIG}:/config
+      - ${MEDIA_MOVIES}:/movies
+      - ${MEDIA_DOWNLOADS}:/downloads
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${TRANSMISSION_CONFIG}:/config
+      - ${MEDIA_DOWNLOADS}:/downloads
+      - ${MEDIA_WATCH}:/watch
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  media-mcp:
+    build:
+      context: ./media-mcp
+    container_name: media-mcp
+    env_file: ./media-mcp/.env
+    restart: unless-stopped
+    expose:
+      - "18080"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+
+      # Service backend
+      - traefik.http.services.mcp.loadbalancer.server.port=18080
+      - traefik.http.services.mcp.loadbalancer.passhostheader=true
+
+      # /health (public direct)
+      - traefik.http.routers.mcp-health.rule=Host(`${MCP_DOMAIN}`) && Path(`/health`)
+      - traefik.http.routers.mcp-health.entrypoints=websecure
+      - traefik.http.routers.mcp-health.tls.certresolver=le
+      - traefik.http.routers.mcp-health.priority=1003
+      - traefik.http.routers.mcp-health.service=mcp
+
+      # well-known (public)
+#      - traefik.http.routers.mcp-wk.rule=Host(`${MCP_DOMAIN}`) && Path(`/.well-known/oauth-protected-resource`)
+#      - traefik.http.routers.mcp-wk.entrypoints=websecure
+#      - traefik.http.routers.mcp-wk.tls.certresolver=le
+#      - traefik.http.routers.mcp-wk.priority=1002
+#      - traefik.http.routers.mcp-wk.service=mcp
+
+      # /mcp (public) -> strip vers /
+      - traefik.http.routers.mcp-api.rule=Host(`${MCP_DOMAIN}`) && PathPrefix(`/mcp`)
+      - traefik.http.routers.mcp-api.entrypoints=websecure
+      - traefik.http.routers.mcp-api.tls.certresolver=le
+      - traefik.http.routers.mcp-api.priority=1001
+#      - traefik.http.routers.mcp-api.middlewares=mcp-strip
+      - traefik.http.routers.mcp-api.service=mcp
+
+      # Strip du préfixe /mcp
+#      - traefik.http.middlewares.mcp-strip.stripprefix.prefixes=/mcp
+    networks:
+      - traefik-proxy
+    # IMPORTANT : même namespace réseau que tes apps
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Pas de "ports:" ici, c'est gluetun qui publie 8080
+    # Monte facultatif si tu veux que MCP lise/écrive dans /media
+    # volumes:
+    #   - ${MEDIA_MOVIES}:/media/films:rw
+    #   - ${MEDIA_TV}:/media/series:rw
+    # Harmoniser l'UID/GID si besoin
+    user: "${PUID}:${PGID}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    command:
+      - --log.level=DEBUG
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${LE_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --api.dashboard=false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - traefik-proxy
+    restart: unless-stopped
+
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:latest
+    container_name: oauth2-proxy
+    env_file: ./oauth2-proxy.env
+    networks:
+      - traefik-proxy
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+
+      # Router pour auth (pages d'authentification)
+      - traefik.http.routers.oauth.rule=Host(`auth.${MCP_DOMAIN}`)
+      - traefik.http.routers.oauth.entrypoints=websecure
+      - traefik.http.routers.oauth.tls.certresolver=le
+
+      # Service oauth2-proxy
+      - traefik.http.services.oauth.loadbalancer.server.port=4180
+      - traefik.http.services.oauth.loadbalancer.passhostheader=true
+
+
+volumes:
+  letsencrypt:
+
+networks:
+  traefik-proxy:
+    external: true
+    name: traefik-proxy
