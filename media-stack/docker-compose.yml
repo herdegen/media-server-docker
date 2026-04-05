@@ -136,21 +136,21 @@ services:
       - traefik.http.services.mcp.loadbalancer.passhostheader=true
 
       # /health (public direct)
-      - traefik.http.routers.mcp-health.rule=Host(`${MCP_DOMAIN}`) && Path(`/health`)
+      - traefik.http.routers.mcp-health.rule=Host(`mcp.maxibestof.com`) && Path(`/health`)
       - traefik.http.routers.mcp-health.entrypoints=websecure
       - traefik.http.routers.mcp-health.tls.certresolver=le
       - traefik.http.routers.mcp-health.priority=1003
       - traefik.http.routers.mcp-health.service=mcp
 
       # well-known (public)
-#      - traefik.http.routers.mcp-wk.rule=Host(`${MCP_DOMAIN}`) && Path(`/.well-known/oauth-protected-resource`)
+#      - traefik.http.routers.mcp-wk.rule=Host(`mcp.maxibestof.com`) && Path(`/.well-known/oauth-protected-resource`)
 #      - traefik.http.routers.mcp-wk.entrypoints=websecure
 #      - traefik.http.routers.mcp-wk.tls.certresolver=le
 #      - traefik.http.routers.mcp-wk.priority=1002
 #      - traefik.http.routers.mcp-wk.service=mcp
 
       # /mcp (public) -> strip vers /
-      - traefik.http.routers.mcp-api.rule=Host(`${MCP_DOMAIN}`) && PathPrefix(`/mcp`)
+      - traefik.http.routers.mcp-api.rule=Host(`mcp.maxibestof.com`) && PathPrefix(`/mcp`)
       - traefik.http.routers.mcp-api.entrypoints=websecure
       - traefik.http.routers.mcp-api.tls.certresolver=le
       - traefik.http.routers.mcp-api.priority=1001
@@ -213,8 +213,8 @@ services:
       - traefik.enable=true
       - traefik.docker.network=traefik-proxy
 
-      # Router pour auth (pages d'authentification)
-      - traefik.http.routers.oauth.rule=Host(`auth.${MCP_DOMAIN}`)
+      # Router pour auth.maxibestof.com (pages d'authentification)
+      - traefik.http.routers.oauth.rule=Host(`auth.maxibestof.com`)
       - traefik.http.routers.oauth.entrypoints=websecure
       - traefik.http.routers.oauth.tls.certresolver=le
 
