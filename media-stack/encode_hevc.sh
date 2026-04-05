@@ -78,7 +78,9 @@ encode_film() {
   done
 
   # Encoder chaque fichier vidéo du dossier
-  local ok=true
+  local err_flag="/tmp/encode_err_$$"
+  rm -f "$err_flag"
+
   find "$src_dir" -maxdepth 1 -type f \( -name "*.avi" -o -name "*.mkv" -o -name "*.mp4" -o -name "*.m4v" -o -name "*.mov" \) | sort | while read -r video; do
     local filename=$(basename "$video")
     local name_no_ext="${filename%.*}"
@@ -111,17 +113,21 @@ encode_film() {
     else
       echo "  [ERR] Échec encodage — voir $LOG_FILE"
       echo "$(date '+%Y-%m-%d %H:%M:%S') ERR $folder / $filename" >> "$LOG_FILE"
-      ok=false
+      touch "$err_flag"
     fi
   done
 
-  if [ "$MODE" != "dry" ] && $ok; then
+  if [ "$MODE" != "dry" ] && [ ! -f "$err_flag" ]; then
     echo "$folder" >> "$DONE_LIST"
     echo ""
     echo "  Terminé. Vérifie le résultat dans :"
     echo "  $tmp_dir"
     echo "  Puis lance : ./replace_hevc.sh \"$folder\""
+  elif [ "$MODE" != "dry" ] && [ -f "$err_flag" ]; then
+    echo ""
+    echo "  [ERR] Encodage échoué — $folder NON ajouté à la liste done."
   fi
+  rm -f "$err_flag"
 }
 
 # --- Main ---
