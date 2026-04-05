@@ -178,7 +178,7 @@ services:
       - no-new-privileges:true
 
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3
     container_name: traefik
     command:
       - --log.level=DEBUG

@@ -21,7 +21,7 @@ Tous les services *arr + Transmission ont `network_mode: "service:gluetun"` — 
 | `radarr`        | `lscr.io/linuxserver/radarr`            | 7878        | Gestion films (via gluetun)               |
 | `transmission`  | `lscr.io/linuxserver/transmission`      | 9091        | Client torrent (via gluetun)              |
 | `media-mcp`     | build local `./media-mcp`              | 18080       | Serveur MCP Node.js (pont IA ↔ apps)      |
-| `traefik`       | `traefik:v3.1`                          | 80/443      | Reverse proxy + TLS Let's Encrypt         |
+| `traefik`       | `traefik:v3`                            | 80/443      | Reverse proxy + TLS Let's Encrypt         |
 | `oauth2-proxy`  | `quay.io/oauth2-proxy/oauth2-proxy`     | 4180        | Auth GitHub OAuth2 sur `auth.maxibestof.com` |
 | `tinymediamanager` | `tinymediamanager/tinymediamanager` | —           | Scraping métadonnées médias               |
 
@@ -127,6 +127,19 @@ Domaines :
 - `auth.maxibestof.com` → oauth2-proxy (port 4180)
 
 TLS géré par Let's Encrypt via HTTP challenge sur le port 80.
+
+## Versions en production (à jour au 2026-04-05)
+
+| Composant | Version |
+|---|---|
+| Jellyfin | 10.11.7 |
+| jellyfin-ffmpeg7 | 7.1.3 |
+| Node.js (media-mcp) | 20 LTS |
+| @modelcontextprotocol/sdk | 1.29.0 |
+| express | 4.x |
+| zod | 3.x |
+
+> express v5 et zod v4 sont des majeures avec breaking changes — migration volontairement reportée.
 
 ## Points d'attention
 
