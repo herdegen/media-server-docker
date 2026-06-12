@@ -53,3 +53,8 @@ coverage/
 # Build outputs
 dist/
 build/
+
+# .NET (Jellyfin Glacier plugin)
+bin/
+obj/
+*.user
