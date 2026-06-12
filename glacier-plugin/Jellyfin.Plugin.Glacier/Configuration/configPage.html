@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Glacier - Configuration</title>
+</head>
+<body>
+<div id="GlacierConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="GlacierConfigForm">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">🧊 Glacier - Scaleway Cold Storage</h2>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="ScalewayAccessKey">Access Key Scaleway</label>
+                    <input id="ScalewayAccessKey" name="ScalewayAccessKey" type="text" is="emby-input" class="emby-input" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="ScalewaySecretKey">Secret Key Scaleway</label>
+                    <input id="ScalewaySecretKey" name="ScalewaySecretKey" type="password" is="emby-input" class="emby-input" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="BucketName">Nom du Bucket</label>
+                    <input id="BucketName" name="BucketName" type="text" is="emby-input" class="emby-input" placeholder="ex: jellyfin-glacier" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="Region">Région</label>
+                    <select id="Region" name="Region" is="emby-select" class="emby-select-withcolor emby-select">
+                        <option value="fr-par">Paris (fr-par)</option>
+                        <option value="nl-ams">Amsterdam (nl-ams)</option>
+                    </select>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="PollIntervalMinutes">Intervalle de vérification (minutes)</label>
+                    <input id="PollIntervalMinutes" name="PollIntervalMinutes" type="number" min="1" max="60" is="emby-input" class="emby-input" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="NotificationUrl">URL de notification (ntfy, webhook...)</label>
+                    <input id="NotificationUrl" name="NotificationUrl" type="text" is="emby-input" class="emby-input" placeholder="https://ntfy.sh/mon-topic" />
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Enregistrer</span>
+                    </button>
+                </div>
+            </form>
+
+            <div class="sectionTitleContainer" style="margin-top:2em">
+                <h2 class="sectionTitle">Films en Glacier</h2>
+            </div>
+            <div id="glacierItemsList" style="margin-top:1em">
+                <p>Chargement...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        var GlacierConfig = {
+            pluginId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+
+            loadConfig: function() {
+                ApiClient.getPluginConfiguration(this.pluginId).then(function(config) {
+                    document.getElementById('ScalewayAccessKey').value = config.ScalewayAccessKey || '';
+                    document.getElementById('ScalewaySecretKey').value = config.ScalewaySecretKey || '';
+                    document.getElementById('BucketName').value = config.BucketName || '';
+                    document.getElementById('Region').value = config.Region || 'fr-par';
+                    document.getElementById('PollIntervalMinutes').value = config.PollIntervalMinutes || 5;
+                    document.getElementById('NotificationUrl').value = config.NotificationUrl || '';
+                });
+            },
+
+            saveConfig: function(e) {
+                e.preventDefault();
+                ApiClient.getPluginConfiguration(GlacierConfig.pluginId).then(function(config) {
+                    config.ScalewayAccessKey = document.getElementById('ScalewayAccessKey').value;
+                    config.ScalewaySecretKey = document.getElementById('ScalewaySecretKey').value;
+                    config.BucketName = document.getElementById('BucketName').value;
+                    config.Region = document.getElementById('Region').value;
+                    config.PollIntervalMinutes = parseInt(document.getElementById('PollIntervalMinutes').value);
+                    config.NotificationUrl = document.getElementById('NotificationUrl').value;
+                    ApiClient.updatePluginConfiguration(GlacierConfig.pluginId, config).then(function() {
+                        Dashboard.processPluginConfigurationUpdateResult();
+                    });
+                });
+            },
+
+            loadItems: function() {
+                ApiClient.ajax({ url: ApiClient.getUrl('Glacier/items'), type: 'GET' }).then(function(items) {
+                    var html = '';
+                    if (!items.length) {
+                        html = '<p>Aucun film en Glacier.</p>';
+                    } else {
+                        html = '<table class="tblSettings"><thead><tr><th>Film</th><th>Taille</th><th>Statut</th><th>Demandé le</th></tr></thead><tbody>';
+                        items.forEach(function(item) {
+                            var size = (item.FileSizeBytes / 1024 / 1024 / 1024).toFixed(2) + ' Go';
+                            html += '<tr><td>' + item.Title + '</td><td>' + size + '</td><td>' + item.Status + '</td><td>' + (item.RestoreRequestedAt ? new Date(item.RestoreRequestedAt).toLocaleString() : '-') + '</td></tr>';
+                        });
+                        html += '</tbody></table>';
+                    }
+                    document.getElementById('glacierItemsList').innerHTML = html;
+                }).catch(function() {
+                    document.getElementById('glacierItemsList').innerHTML = '<p>Erreur lors du chargement.</p>';
+                });
+            }
+        };
+
+        document.getElementById('GlacierConfigForm').addEventListener('submit', GlacierConfig.saveConfig);
+        GlacierConfig.loadConfig();
+        GlacierConfig.loadItems();
+    </script>
+</div>
+</body>
+</html>

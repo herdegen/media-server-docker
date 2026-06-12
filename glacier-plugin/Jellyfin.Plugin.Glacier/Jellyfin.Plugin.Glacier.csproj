@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Jellyfin.Plugin.Glacier</AssemblyName>
+    <RootNamespace>Jellyfin.Plugin.Glacier</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MediaBrowser.Common">
+      <HintPath>/usr/lib/jellyfin/bin/MediaBrowser.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MediaBrowser.Controller">
+      <HintPath>/usr/lib/jellyfin/bin/MediaBrowser.Controller.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MediaBrowser.Model">
+      <HintPath>/usr/lib/jellyfin/bin/MediaBrowser.Model.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Jellyfin.Api">
+      <HintPath>/usr/lib/jellyfin/bin/Jellyfin.Api.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Jellyfin.Data">
+      <HintPath>/usr/lib/jellyfin/bin/Jellyfin.Data.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="2.2.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration\configPage.html" />
+  </ItemGroup>
+
+</Project>
