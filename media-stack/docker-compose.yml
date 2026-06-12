@@ -31,11 +31,13 @@ services:
       - "8989:8989"  # Sonarr
       - "7878:7878"  # Radarr
       - "8191:8191"  # FlareSolverr (optionnel, pratique pour test)
+    # Healthcheck natif gluetun (binaire interne, pas de wget qui s'accumule en cas de VPN down)
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://1.1.1.1 >/dev/null || exit 1"]
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   flaresolverr:
