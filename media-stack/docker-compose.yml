@@ -75,6 +75,7 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+      - UMASK=002   # dossiers/médias créés en group-writable (775/664) -> archivage Glacier OK
     volumes:
       - ${SONARR_CONFIG}:/config
       - ${MEDIA_TV}:/tv
@@ -92,6 +93,7 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+      - UMASK=002   # dossiers/médias créés en group-writable (775/664) -> archivage Glacier OK
     volumes:
       - ${RADARR_CONFIG}:/config
       - ${MEDIA_MOVIES}:/movies
