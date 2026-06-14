@@ -70,7 +70,9 @@ public class GlacierService
 
         // Utilise awscli pour l'upload (contourne les limitations de timeout du SDK .NET)
         var endpoint = $"https://s3.{config.Region}.scw.cloud";
-        var args = $"s3 cp \"{localPath}\" s3://{config.BucketName}/{objectKey} --storage-class GLACIER --endpoint-url {endpoint} --region {config.Region}";
+        // --only-show-errors : évite que aws inonde stdout de lignes de progression
+        // (sinon le tube stdout se remplit et le process se bloque -> deadlock).
+        var args = $"s3 cp \"{localPath}\" s3://{config.BucketName}/{objectKey} --storage-class GLACIER --only-show-errors --endpoint-url {endpoint} --region {config.Region}";
 
         var psi = new System.Diagnostics.ProcessStartInfo("aws", args)
         {
@@ -85,8 +87,13 @@ public class GlacierService
         };
 
         using var process = System.Diagnostics.Process.Start(psi)!;
-        var stderr = await process.StandardError.ReadToEndAsync();
+        // Lire stdout ET stderr en parallèle AVANT WaitForExit : sinon, si l'un des
+        // tubes se remplit, le process se bloque en écriture et ne se termine jamais.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync(CancellationToken.None);
+        var stderr = await stderrTask;
+        await stdoutTask;
 
         if (process.ExitCode != 0)
             throw new Exception($"aws s3 cp échoué (code {process.ExitCode}) : {stderr}");
