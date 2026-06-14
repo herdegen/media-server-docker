@@ -1,0 +1,10 @@
+[Unit]
+Description=Lance glacier-watch.sh toutes les 5 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

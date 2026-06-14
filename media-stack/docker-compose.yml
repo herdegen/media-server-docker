@@ -10,18 +10,15 @@ services:
       - /dev/net/tun:/dev/net/tun
     sysctls:
       net.ipv4.conf.all.src_valid_mark: "1"
+    # Provider VPN piloté par preset (bascule via ./vpn-switch.sh nordvpn|mullvad)
+    env_file:
+      - ./vpn/active.env
     environment:
       - TZ=${TZ}
-      # --- Mullvad + WireGuard ---
-      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}   # mullvad
-      - VPN_TYPE=${VPN_TYPE}                           # wireguard
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
-      # (optionnel) cible région/ville si tu veux
-      - SERVER_CITIES=${SERVER_CITIES}
-      # DNS: propre avec Mullvad/WG
       - DOT=off
-      - DNS_ADDRESS=10.64.0.1
+      # --- Control server (widget VPN Homepage), auth par apikey ---
+      - HTTP_CONTROL_SERVER_ADDRESS=:8000
+      - HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH=/gluetun/auth/config.toml
     volumes:
       - ${GLUETUN_DATA}:/gluetun
     # Expose ici tous les ports des services qui sont derrière le VPN
@@ -31,6 +28,7 @@ services:
       - "8989:8989"  # Sonarr
       - "7878:7878"  # Radarr
       - "8191:8191"  # FlareSolverr (optionnel, pratique pour test)
+      - "172.17.0.1:8000:8000"  # Control server gluetun (non-public, gateway docker)
     # Healthcheck natif gluetun (binaire interne, pas de wget qui s'accumule en cas de VPN down)
     healthcheck:
       test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
@@ -223,6 +221,84 @@ services:
       # Service oauth2-proxy
       - traefik.http.services.oauth.loadbalancer.server.port=4180
       - traefik.http.services.oauth.loadbalancer.passhostheader=true
+
+      # --- Middleware forwardAuth réutilisable (protège home.maxibestof.com) ---
+      # Adresse = racine oauth2-proxy : 302 vers GitHub si non authentifié (relayé par Traefik),
+      # 202 via upstream static si authentifié. Pas besoin de middleware errors.
+      - traefik.http.middlewares.oauth-auth.forwardauth.address=http://oauth2-proxy:4180/
+      - traefik.http.middlewares.oauth-auth.forwardauth.trustForwardHeader=true
+      - traefik.http.middlewares.oauth-auth.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email,X-Auth-Request-Access-Token
+      # Router /oauth2/* sur home.maxibestof.com (callback + sign-in)
+      - traefik.http.routers.oauth-home.rule=Host(`home.maxibestof.com`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.oauth-home.entrypoints=websecure
+      - traefik.http.routers.oauth-home.tls.certresolver=le
+      - traefik.http.routers.oauth-home.service=oauth
+      - traefik.http.routers.oauth-home.priority=100
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=106          # groupe docker (GID hôte) comme groupe primaire -> accès socket
+      - HOMEPAGE_ALLOWED_HOSTS=home.maxibestof.com
+    env_file: ./homepage.env
+    volumes:
+      - ./homepage/config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-proxy
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - traefik.http.services.homepage.loadbalancer.server.port=3000
+      - traefik.http.services.homepage.loadbalancer.passhostheader=true
+      - traefik.http.routers.homepage.rule=Host(`home.maxibestof.com`)
+      - traefik.http.routers.homepage.entrypoints=websecure
+      - traefik.http.routers.homepage.tls.certresolver=le
+      - traefik.http.routers.homepage.middlewares=oauth-auth@docker
+
+  vpn-control:
+    build:
+      context: ./vpn-control
+    container_name: vpn-control
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/media-stack:/srv/media-stack
+      - /srv/docker/gluetun/auth/.apikey.txt:/gluetun-auth/.apikey.txt:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-proxy
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - traefik.http.services.vpnctl.loadbalancer.server.port=8080
+      # /vpn sur home.maxibestof.com, protégé par le même OAuth, préfixe strippé
+      - traefik.http.middlewares.vpn-strip.stripprefix.prefixes=/vpn
+      - traefik.http.routers.vpnctl.rule=Host(`home.maxibestof.com`) && PathPrefix(`/vpn`)
+      - traefik.http.routers.vpnctl.entrypoints=websecure
+      - traefik.http.routers.vpnctl.tls.certresolver=le
+      - traefik.http.routers.vpnctl.priority=200
+      - traefik.http.routers.vpnctl.middlewares=vpn-strip@docker,oauth-auth@docker
+
+  glances:
+    image: nicolargo/glances:latest-full
+    container_name: glances
+    pid: host
+    network_mode: host
+    environment:
+      - TZ=${TZ}
+      - GLANCES_OPT=-w
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /mnt/media:/mnt/media:ro
+    restart: unless-stopped
 
 
 volumes:

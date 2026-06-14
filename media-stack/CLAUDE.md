@@ -10,11 +10,11 @@ Serveur de médiathèque auto-hébergé (`maxibestof.com`). L'ensemble du stack 
 
 ### Services Docker (`/srv/media-stack/`)
 
-Tous les services *arr + Transmission ont `network_mode: "service:gluetun"` — ils sortent exclusivement via le VPN Mullvad/WireGuard.
+Tous les services *arr + Transmission ont `network_mode: "service:gluetun"` — ils sortent exclusivement via le VPN (**NordVPN/NordLynx** depuis le 2026-06-13, bascule Mullvad possible, cf. section *Bascule VPN*).
 
 | Conteneur       | Image                                   | Port exposé | Rôle                                      |
 |-----------------|-----------------------------------------|-------------|-------------------------------------------|
-| `gluetun`       | `qmcgaw/gluetun`                        | gateway     | VPN Mullvad WireGuard, gateway réseau     |
+| `gluetun`       | `qmcgaw/gluetun`                        | gateway     | VPN (NordVPN/NordLynx), gateway réseau + control server `172.17.0.1:8000` |
 | `flaresolverr`  | `ghcr.io/flaresolverr/flaresolverr`     | 8191        | Bypass Cloudflare (via gluetun)           |
 | `prowlarr`      | `lscr.io/linuxserver/prowlarr`          | 9696        | Gestionnaire d'indexeurs (via gluetun)    |
 | `sonarr`        | `lscr.io/linuxserver/sonarr`            | 8989        | Gestion séries TV (via gluetun)           |
@@ -22,8 +22,12 @@ Tous les services *arr + Transmission ont `network_mode: "service:gluetun"` — 
 | `transmission`  | `lscr.io/linuxserver/transmission`      | 9091        | Client torrent (via gluetun)              |
 | `media-mcp`     | build local `./media-mcp`              | 18080       | Serveur MCP Node.js (pont IA ↔ apps)      |
 | `traefik`       | `traefik:v3`                            | 80/443      | Reverse proxy + TLS Let's Encrypt         |
-| `oauth2-proxy`  | `quay.io/oauth2-proxy/oauth2-proxy`     | 4180        | Auth GitHub OAuth2 sur `auth.maxibestof.com` |
-| `tinymediamanager` | `tinymediamanager/tinymediamanager` | —           | Scraping métadonnées médias               |
+| `oauth2-proxy`  | `quay.io/oauth2-proxy/oauth2-proxy`     | 4180        | Auth GitHub OAuth2 (`auth.maxibestof.com`, middleware `oauth-auth@docker`) |
+| `homepage`      | `ghcr.io/gethomepage/homepage`          | 3000        | Dashboard `home.maxibestof.com` (derrière OAuth) |
+| `vpn-control`   | build local `./vpn-control`             | 8080        | Panneau `/vpn` du dashboard (pilote la bascule VPN) |
+| `glances`       | `nicolargo/glances`                     | 61208       | Métriques système (network_mode host)     |
+
+> ⚠️ `tinymediamanager` ne fait plus partie du `docker-compose.yml`. Les ports des *arr (7878/8989/9696/9091/8191) sont publiés par **gluetun** en `0.0.0.0` → accessibles depuis Internet (auth Forms/Basic activée sur chaque app ; à terme : binder sur `172.17.0.1` ou passer derrière Traefik).
 
 ### Jellyfin (service systemd natif)
 
@@ -67,11 +71,11 @@ Fichier principal : `/srv/media-stack/.env`
 Variables clés :
 - `PUID=1000` / `PGID=1000` — UID/GID des conteneurs linuxserver
 - `TZ=Europe/Paris`
-- `VPN_SERVICE_PROVIDER=mullvad` + `VPN_TYPE=wireguard`
-- `SERVER_CITIES=Bucharest`
 - `MEDIA_MOVIES`, `MEDIA_TV`, `MEDIA_DOWNLOADS`, `MEDIA_WATCH` — chemins montés
 - `MCP_DOMAIN=mcp.maxibestof.com`
 - `LE_EMAIL` — email Let's Encrypt
+
+> Les variables VPN **ne sont plus** dans `.env` ni dans le bloc `environment` de gluetun : elles vivent dans les presets `vpn/{nordvpn,mullvad}.env`, et gluetun lit `vpn/active.env` via `env_file`. Voir *Bascule VPN*.
 
 Config MCP séparée : `/srv/media-stack/media-mcp/.env`
 
@@ -125,8 +129,36 @@ docker network create traefik-proxy
 Domaines :
 - `mcp.maxibestof.com` → media-mcp (port 18080)
 - `auth.maxibestof.com` → oauth2-proxy (port 4180)
+- `home.maxibestof.com` → homepage (dashboard, protégé OAuth) ; sous-chemin `/vpn` → vpn-control
 
 TLS géré par Let's Encrypt via HTTP challenge sur le port 80.
+
+## Bascule VPN
+
+gluetun est piloté par presets (cf. CHANGELOG 2026-06-13) :
+
+```bash
+cd /srv/media-stack
+./vpn-switch.sh status        # provider + IP actuels
+./vpn-switch.sh nordvpn       # bascule NordVPN (actif par défaut)
+./vpn-switch.sh mullvad       # bascule Mullvad (⚠️ abonnement à renouveler)
+```
+
+- Presets : `vpn/{nordvpn,mullvad}.env` (chmod 600). Preset courant copié dans `vpn/active.env`.
+- Clé NordLynx (re)générable via token NordVPN :
+  `curl -s -u "token:TOKEN" https://api.nordvpn.com/v1/users/services/credentials | jq -r .nordlynx_private_key`
+
+## Sécurité
+
+- **fail2ban** actif (jail `sshd`, backend systemd) — config `/etc/fail2ban/jail.local`. `fail2ban-client status sshd` pour voir les bans.
+- SSH : `PasswordAuthentication` encore activé (TODO : passer en clé-only).
+- Pare-feu : pas encore d'ufw/nftables (TODO). ⚠️ ufw ne bloque pas les ports publiés par Docker → préférer un bind sur `172.17.0.1` dans le compose.
+
+## Supervision / alertes
+
+- **Glances** (`glances`, network_mode host) — métriques système, intégré au dashboard.
+- **smartd** (smartmontools) : daemon actif (santé S.M.A.R.T. des disques). À configurer pour alerter (`-M exec` → ntfy).
+- **ntfy** (en cours) : notifs push sur téléphone via le serveur public gratuit `ntfy.sh`. Le **nom du topic est secret** et stocké dans `.env` (jamais commité). Alertes à brancher : disque >90 %, VPN down, conteneur tombé, smartd.
 
 ## Versions en production (à jour au 2026-04-05)
 

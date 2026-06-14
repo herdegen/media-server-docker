@@ -1,0 +1,8 @@
+[Unit]
+Description=Alertes serveur médiathèque (disque/conteneurs/VPN) -> ntfy
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/media-stack/alert-check.sh

@@ -1,0 +1,7 @@
+[Unit]
+Description=Surveillance Glacier (upload/restauration) -> ntfy
+After=jellyfin.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/media-stack/glacier-watch.sh

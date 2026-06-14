@@ -4,6 +4,49 @@ Historique des modifications apportées au stack média.
 
 ---
 
+## 2026-06-14
+
+### Supervision / alertes (en cours)
+
+- **ntfy** retenu pour les notifications push sur téléphone (serveur public `ntfy.sh`, **gratuit**, topic au nom imprévisible — non versionné, stocké dans `.env`). Notif de test reçue OK.
+- À brancher : alertes disque >90 %, VPN down/fuite IP, conteneur tombé, et `smartd` (santé disques) → tous via `curl` vers le topic ntfy.
+
+### Documentation
+
+- Mise à jour de `CLAUDE.md` (était périmé : VPN Mullvad → NordVPN, services obsolètes, ajout dashboard/fail2ban/bascule VPN).
+
+## 2026-06-13
+
+### VPN — migration Mullvad → NordVPN + mécanisme de bascule
+
+- Mullvad expiré → migration sur **NordVPN (WireGuard/NordLynx)**, sortie Roumanie. gluetun `healthy`, kill-switch OK, transmission relancé.
+- Variables VPN sorties du bloc `environment` → **presets** `vpn/{nordvpn,mullvad}.env` (chmod 600), gluetun lit `vpn/active.env` via `env_file`.
+- Script **`vpn-switch.sh {nordvpn|mullvad|status}`** : copie le preset → `active.env`, recrée gluetun, attend healthy, relance les *arr+transmission, affiche l'IP.
+- **Control server** gluetun activé (`172.17.0.1:8000`, auth apikey) pour le widget VPN du dashboard.
+- ⚠️ Abonnement Mullvad expiré → à renouveler avant de rebasculer.
+
+### Dashboard
+
+- **Homepage + Glances** déployés sur `home.maxibestof.com` (derrière Traefik + OAuth GitHub). Panneau `/vpn` (conteneur `vpn-control`) pour piloter la bascule VPN. Cert Let's Encrypt OK.
+
+### Sécurité
+
+- **fail2ban** installé et actif : jail `sshd`, backend systemd, maxretry 5/10min, bantime 1h (incrément jusqu'à 1 semaine), `ignoreip` localhost. Config : `/etc/fail2ban/jail.local`. (≈19k tentatives SSH/24h observées avant install.)
+
+### Nettoyage disque (94 % → 88 %, ~100 G libérés)
+
+- Mad Men S1-S3 démonitorées + fichiers/copies orphelines des downloads supprimés (S04 conservée).
+
+## 2026-06-12
+
+### Incident gluetun (fork bomb)
+
+- Healthcheck `wget` en boucle quand le VPN était down → ~76k process zombies. Fix : healthcheck natif gluetun (`/gluetun-entrypoint healthcheck`) au lieu de `wget`. Mergé sur `main`.
+
+### Plugin Glacier (Jellyfin)
+
+- Plugin d'archivage cold-storage Scaleway Glacier installé et versionné (`glacier-plugin/`). JS d'injection en place. Fonctionnel.
+
 ## 2026-04-05
 
 ### Mises à jour
