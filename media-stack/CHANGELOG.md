@@ -6,7 +6,16 @@ Historique des modifications apportées au stack média.
 
 ## 2026-06-14
 
-### Supervision / alertes (en cours)
+### Sauvegardes config (backups chiffrés Scaleway)
+
+- `backup-config.sh` + `backup-config.timer` (nuit 03:30) : dump SQLite cohérent des bases *arr + `jellyfin.db`, configs plugins, `/etc/jellyfin`, et le stack → archive **chiffrée GPG AES256** → bucket Scaleway `mediaserver-config-backups` (Standard, fr-par). Rétention 14. Notif ntfy succès/échec. Passphrase dans `.env` (à conserver aussi hors serveur). Restauration testée OK (download+déchiffrement+listing).
+
+### Glacier — réparation bouton (après MAJ Jellyfin 10.11)
+
+- Bouton disparu : entrée injecteur désactivée + plugin **File Transformation** manquant (installé v2.5.11.0) + script incompatible React → réécrit en v2 (token via localStorage, MutationObserver, plus de hashchange). Cf [[project-glacier-plugin]].
+- `glacier-watch.sh` corrigé : notifie aussi les **nouveaux** items (marqueur d'init), pas seulement les changements.
+
+### Supervision / alertes
 
 - **ntfy** retenu pour les notifications push sur téléphone (serveur public `ntfy.sh`, **gratuit**, topic au nom imprévisible — non versionné, stocké dans `.env`). Notif de test reçue OK.
 - À brancher : alertes disque >90 %, VPN down/fuite IP, conteneur tombé, et `smartd` (santé disques) → tous via `curl` vers le topic ntfy.

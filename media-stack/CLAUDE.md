@@ -158,7 +158,26 @@ cd /srv/media-stack
 
 - **Glances** (`glances`, network_mode host) — métriques système, intégré au dashboard.
 - **smartd** (smartmontools) : daemon actif (santé S.M.A.R.T. des disques). À configurer pour alerter (`-M exec` → ntfy).
-- **ntfy** (en cours) : notifs push sur téléphone via le serveur public gratuit `ntfy.sh`. Le **nom du topic est secret** et stocké dans `.env` (jamais commité). Alertes à brancher : disque >90 %, VPN down, conteneur tombé, smartd.
+- **ntfy** : notifs push sur téléphone via le serveur public gratuit `ntfy.sh`. Topic secret + token dans `.env` (jamais commités). Alertes actives : `alert-check.sh` (disque>90%/conteneurs/gluetun/fuite IP, timer 10 min), `glacier-watch.sh` (upload+restauration Glacier, timer 5 min), `smartd-ntfy.sh` (santé disques). App ntfy native requise sur mobile (web push navigateur peu fiable).
+
+## Sauvegardes (backup-config)
+
+`backup-config.sh` (timer `backup-config.timer`, chaque nuit 03:30) sauvegarde les configs **chiffrées** vers Scaleway Object Storage (bucket `mediaserver-config-backups`, classe Standard, région fr-par). Rétention : 14 archives.
+
+Périmètre : bases *arr (dump SQLite cohérent `.backup`) + config.xml, `jellyfin.db` + configs plugins + `/etc/jellyfin`, et le stack (compose/.env/presets/scripts). PAS le cache d'images (ré-téléchargeable).
+
+Chiffrement : GPG symétrique AES256, passphrase dans `.env` (`BACKUP_GPG_PASSPHRASE`). ⚠️ **La passphrase doit aussi être conservée HORS serveur** (sinon backups irrécupérables si le serveur meurt).
+
+**Restauration :**
+```bash
+source /srv/media-stack/.env
+export AWS_ACCESS_KEY_ID=$SCW_ACCESS_KEY AWS_SECRET_ACCESS_KEY=$SCW_SECRET_KEY
+EP="https://s3.${SCW_REGION}.scw.cloud"
+aws s3 ls s3://$BACKUP_BUCKET/ --endpoint-url $EP --region $SCW_REGION   # choisir une archive
+aws s3 cp s3://$BACKUP_BUCKET/<archive>.tar.gz.gpg . --endpoint-url $EP --region $SCW_REGION
+gpg -d --passphrase "$BACKUP_GPG_PASSPHRASE" <archive>.tar.gz.gpg | tar xz
+# -> dump/arr/*.db, dump/jellyfin/*, dump/stack.tar.gz ; restaurer service par service (stoppé).
+```
 
 ## Versions en production (à jour au 2026-04-05)
 

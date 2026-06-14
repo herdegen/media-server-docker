@@ -1,0 +1,8 @@
+[Unit]
+Description=Sauvegarde chiffrée des configs -> Scaleway
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/media-stack/backup-config.sh
