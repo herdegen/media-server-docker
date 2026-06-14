@@ -1,70 +1,47 @@
 /**
- * Glacier Plugin - Injection JS pour Jellyfin
- * À coller dans Dashboard > Général > Custom JavaScript
+ * Glacier Plugin - Injection JS pour Jellyfin (v2, adapté 10.11 / React)
+ * Corrige : ApiClient non global, navigation History API, id hors du hash.
  */
 (function () {
     'use strict';
 
     const GLACIER_API = '/Glacier/items';
-    const POLL_INTERVAL_MS = 30000; // rafraîchit les statuts toutes les 30s
-    let glacierItems = {}; // { itemId: GlacierItemDto }
+    const POLL_INTERVAL_MS = 30000;
+    let glacierItems = {};
 
-    // Charge la liste des films Glacier depuis l'API du plugin
-    function loadGlacierItems() {
-        if (typeof ApiClient === 'undefined') return;
-        var token = ApiClient.accessToken();
-        if (!token) return;
-        fetch(ApiClient.getUrl(GLACIER_API), {
-            headers: { 'X-Emby-Authorization': 'MediaBrowser Token="' + token + '"' }
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (items) {
-            console.log('[Glacier] items chargés:', items.length);
-            glacierItems = {};
-            items.forEach(function (item) {
-                var id = item.JellyfinItemId.toLowerCase().replace(/-/g, '');
-                glacierItems[id] = item;
-            });
-            applyBadges();
-            applyDetailButton();
-        })
-        .catch(function (e) { console.log('[Glacier] erreur fetch:', e); });
+    // Récupère {base, token} via ApiClient (legacy) ou localStorage (10.11)
+    function getCreds() {
+        try {
+            if (typeof ApiClient !== 'undefined' && ApiClient.accessToken && ApiClient.accessToken()) {
+                return { base: ApiClient.serverAddress(), token: ApiClient.accessToken() };
+            }
+        } catch (e) {}
+        try {
+            const creds = JSON.parse(localStorage.getItem('jellyfin_credentials'));
+            const s = creds.Servers[0];
+            return { base: s.ManualAddress || s.LocalAddress || window.location.origin, token: s.AccessToken };
+        } catch (e) { return null; }
     }
 
-    // Injecte les badges 🧊 sur les cartes de la grille
-    function applyBadges() {
-        document.querySelectorAll('[data-id]').forEach(function (card) {
-            const itemId = (card.dataset.id || '').toLowerCase();
-            if (!itemId || !glacierItems[itemId]) return;
-
-            const item = glacierItems[itemId];
-            if (card.querySelector('.glacier-badge')) return; // déjà ajouté
-
-            const badge = document.createElement('div');
-            badge.className = 'glacier-badge';
-            badge.title = 'Sur Glacier Scaleway — cliquez pour restaurer';
-            badge.dataset.itemid = itemId;
-            badge.style.cssText = [
-                'position:absolute', 'top:6px', 'left:6px',
-                'background:rgba(30,120,200,0.92)', 'color:#fff',
-                'border-radius:4px', 'padding:2px 6px',
-                'font-size:11px', 'font-weight:bold',
-                'z-index:10', 'cursor:pointer', 'user-select:none',
-                'box-shadow:0 1px 4px rgba(0,0,0,0.4)'
-            ].join(';');
-
-            badge.textContent = statusLabel(item.Status);
-            badge.addEventListener('click', function (e) {
-                e.stopPropagation();
-                e.preventDefault();
-                openRestoreDialog(itemId);
-            });
-
-            // Le card a besoin d'un position:relative pour que le badge se place bien
-            const cardInner = card.querySelector('.cardContent') || card;
-            cardInner.style.position = 'relative';
-            cardInner.appendChild(badge);
+    function api(path, method) {
+        const c = getCreds();
+        if (!c) return Promise.reject('no creds');
+        return fetch(c.base.replace(/\/$/, '') + path, {
+            method: method || 'GET',
+            headers: { 'Authorization': 'MediaBrowser Token="' + c.token + '"' }
+        }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.status === 204 ? null : r.json().catch(function () { return null; });
         });
+    }
+
+    function confirmDlg(html, title, cb) {
+        if (typeof Dashboard !== 'undefined' && Dashboard.confirm) { Dashboard.confirm(html, title, cb); }
+        else { cb(window.confirm(title + '\n\n' + html.replace(/<[^>]+>/g, ''))); }
+    }
+    function alertDlg(msg, title) {
+        if (typeof Dashboard !== 'undefined' && Dashboard.alert) { Dashboard.alert({ message: msg, title: title }); }
+        else { window.alert((title ? title + '\n\n' : '') + msg); }
     }
 
     function statusLabel(status) {
@@ -78,63 +55,70 @@
         }
     }
 
-    // Affiche une boîte de dialogue de restauration
+    function loadGlacierItems() {
+        api(GLACIER_API).then(function (items) {
+            if (!items) return;
+            console.log('[Glacier] items chargés:', items.length);
+            glacierItems = {};
+            items.forEach(function (item) {
+                const id = item.JellyfinItemId.toLowerCase().replace(/-/g, '');
+                glacierItems[id] = item;
+            });
+            applyBadges();
+            applyDetailButton();
+        }).catch(function (e) { console.log('[Glacier] erreur fetch:', e); });
+    }
+
+    function applyBadges() {
+        document.querySelectorAll('[data-id]').forEach(function (card) {
+            const itemId = (card.getAttribute('data-id') || '').toLowerCase();
+            if (!itemId || !glacierItems[itemId]) return;
+            if (card.querySelector('.glacier-badge')) return;
+            const item = glacierItems[itemId];
+            const badge = document.createElement('div');
+            badge.className = 'glacier-badge';
+            badge.title = 'Sur Glacier Scaleway — cliquez pour restaurer';
+            badge.style.cssText = ['position:absolute', 'top:6px', 'left:6px', 'background:rgba(30,120,200,0.92)', 'color:#fff', 'border-radius:4px', 'padding:2px 6px', 'font-size:11px', 'font-weight:bold', 'z-index:10', 'cursor:pointer', 'user-select:none', 'box-shadow:0 1px 4px rgba(0,0,0,0.4)'].join(';');
+            badge.textContent = statusLabel(item.Status);
+            badge.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); openRestoreDialog(itemId); });
+            const cardInner = card.querySelector('.cardContent') || card;
+            cardInner.style.position = 'relative';
+            cardInner.appendChild(badge);
+        });
+    }
+
+    function currentItemId() {
+        const m = window.location.href.match(/[?&]id=([a-f0-9]{32})/i);
+        return m ? m[1].toLowerCase() : null;
+    }
+
     function openRestoreDialog(itemId) {
         const item = glacierItems[itemId];
         if (!item) return;
-
-        // Si déjà en cours ou disponible, juste informer
         if (item.Status !== 'OnGlacier') {
-            Dashboard.alert({
-                message: 'Statut actuel : ' + statusLabel(item.Status) +
-                    (item.RestoreRequestedAt ? '\nDemandé le : ' + new Date(item.RestoreRequestedAt).toLocaleString() : ''),
-                title: '🧊 ' + item.Title
-            });
+            alertDlg('Statut actuel : ' + statusLabel(item.Status) + (item.RestoreRequestedAt ? '\nDemandé le : ' + new Date(item.RestoreRequestedAt).toLocaleString() : ''), '🧊 ' + item.Title);
             return;
         }
-
         const sizeGo = (item.FileSizeBytes / 1024 / 1024 / 1024).toFixed(1);
-
-        Dashboard.confirm(
-            '🎬 <strong>' + item.Title + '</strong><br><br>' +
-            '📦 Taille : ' + sizeGo + ' Go<br>' +
-            '⏱ Délai estimé : ~20 minutes<br><br>' +
-            'Lancer la restauration depuis Scaleway Glacier ?',
-            'Récupérer ce film',
-            function (confirmed) {
-                if (!confirmed) return;
-                ApiClient.ajax({
-                    url: ApiClient.getUrl('Glacier/items/' + itemId + '/restore'),
-                    type: 'POST'
-                }).then(function (response) {
-                    Dashboard.alert({
-                        message: '✅ Restauration lancée !\nTemps estimé : ' + response.EstimatedMinutes + ' minutes.\nVous serez notifié quand le film sera disponible.',
-                        title: item.Title
-                    });
-                    loadGlacierItems();
-                }).catch(function (err) {
-                    Dashboard.alert({ message: 'Erreur lors de la demande de restauration.', title: 'Erreur' });
-                });
-            }
-        );
+        confirmDlg('🎬 <strong>' + item.Title + '</strong><br><br>📦 Taille : ' + sizeGo + ' Go<br>⏱ Délai estimé : ~20 minutes<br><br>Lancer la restauration depuis Scaleway Glacier ?', 'Récupérer ce film', function (confirmed) {
+            if (!confirmed) return;
+            api('/Glacier/items/' + itemId + '/restore', 'POST').then(function (resp) {
+                alertDlg('✅ Restauration lancée !' + (resp && resp.EstimatedMinutes ? '\nTemps estimé : ' + resp.EstimatedMinutes + ' minutes.' : '') + '\nVous serez notifié quand le film sera disponible.', item.Title);
+                loadGlacierItems();
+            }).catch(function () { alertDlg('Erreur lors de la demande de restauration.', 'Erreur'); });
+        });
     }
 
-    // Injecte ou met à jour le bouton Glacier sur la page détail
     function applyDetailButton() {
-        const buttonsArea = document.querySelector('.mainDetailButtons');
+        const buttonsArea = document.querySelector('.mainDetailButtons') || document.querySelector('.detailButtons');
         if (!buttonsArea) return;
-        const match = window.location.hash.match(/[?&]id=([a-f0-9]{32})/i);
-        if (!match) return;
-        const itemId = match[1].toLowerCase();
+        const itemId = currentItemId();
+        if (!itemId) return;
         const glacierItem = glacierItems[itemId];
-
-        // Clé d'état : si le bouton existe déjà avec le même état, ne rien faire
         const stateKey = itemId + ':' + (glacierItem ? glacierItem.Status : 'local');
         const existing = buttonsArea.querySelector('.glacier-archive-btn');
         if (existing && existing.dataset.statekey === stateKey) return;
-
-        // Supprime les boutons obsolètes
-        buttonsArea.querySelectorAll('.glacier-archive-btn').forEach(function(b) { b.remove(); });
+        buttonsArea.querySelectorAll('.glacier-archive-btn').forEach(function (b) { b.remove(); });
 
         const btn = document.createElement('button');
         btn.className = 'raised glacier-archive-btn emby-button';
@@ -144,84 +128,50 @@
         if (!glacierItem) {
             btn.innerHTML = '🧊 Archiver sur Glacier';
             btn.addEventListener('click', function () {
-                Dashboard.confirm(
-                    'Envoyer ce film sur Scaleway Glacier ?<br><br>⚠️ Le fichier local sera <strong>supprimé</strong> après l\'upload.',
-                    'Archiver sur Glacier',
-                    function (confirmed) {
-                        if (!confirmed) return;
-                        btn.disabled = true;
-                        btn.innerHTML = '⏳ Upload en cours…';
-                        ApiClient.ajax({
-                            url: ApiClient.getUrl('Glacier/items/' + itemId + '/archive'),
-                            type: 'POST'
-                        }).then(function () {
-                            Dashboard.alert({ message: '⏳ Upload démarré en arrière-plan.\nLe badge 🧊 apparaîtra sur le film une fois l\'upload terminé.', title: 'Glacier' });
-                        }).catch(function () {
-                            Dashboard.alert({ message: '❌ Erreur lors de l\'archivage.', title: 'Erreur' });
-                            btn.disabled = false;
-                            btn.innerHTML = '🧊 Archiver sur Glacier';
-                        });
-                    }
-                );
+                confirmDlg('Envoyer ce film sur Scaleway Glacier ?<br><br>⚠️ Le fichier local sera <strong>supprimé</strong> après l\'upload.', 'Archiver sur Glacier', function (confirmed) {
+                    if (!confirmed) return;
+                    btn.disabled = true; btn.innerHTML = '⏳ Upload en cours…';
+                    api('/Glacier/items/' + itemId + '/archive', 'POST').then(function () {
+                        alertDlg('⏳ Upload démarré en arrière-plan.\nLe badge 🧊 apparaîtra une fois l\'upload terminé.', 'Glacier');
+                    }).catch(function () {
+                        alertDlg('❌ Erreur lors de l\'archivage.', 'Erreur');
+                        btn.disabled = false; btn.innerHTML = '🧊 Archiver sur Glacier';
+                    });
+                });
             });
         } else {
             btn.innerHTML = statusLabel(glacierItem.Status);
             btn.style.opacity = '0.7';
             btn.style.cursor = 'default';
             if (glacierItem.Status === 'OnGlacier') {
-                btn.style.cursor = 'pointer';
-                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer'; btn.style.opacity = '1';
                 btn.addEventListener('click', function () { openRestoreDialog(itemId); });
             }
         }
-
         buttonsArea.appendChild(btn);
     }
 
-    // Vérifie toutes les 500ms si on est sur une page détail et injecte le bouton
-    var lastHash = '';
-    setInterval(function () {
-        var hash = window.location.hash;
-        if (hash === lastHash) return; // pas de changement
-        lastHash = hash;
-        console.log('[Glacier] navigation détectée:', hash);
-        // Attend que .mainDetailButtons soit rendu
-        var attempts = 0;
-        var wait = setInterval(function () {
-            if (document.querySelector('.mainDetailButtons')) {
-                clearInterval(wait);
-                applyDetailButton();
-            } else if (++attempts > 20) {
-                clearInterval(wait);
-            }
-        }, 150);
-    }, 500);
-
-    // Observe les changements du DOM pour les badges sur les grilles
-    const observer = new MutationObserver(function (mutations) {
-        let shouldApply = false;
-        mutations.forEach(function (m) { if (m.addedNodes.length > 0) shouldApply = true; });
-        if (shouldApply) { applyBadges(); }
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    console.log('[Glacier] Script chargé ✅');
-
-    // Attend que ApiClient soit prêt (scripts Jellyfin sont en defer, chargent après nous)
-    function waitForApiClient(callback) {
-        if (typeof ApiClient !== 'undefined' && ApiClient.accessToken()) {
-            callback();
-        } else {
-            setTimeout(function () { waitForApiClient(callback); }, 500);
-        }
+    // Pilotage par observation du DOM (débounce léger), sans hashchange
+    let pending = false;
+    function scheduleApply() {
+        if (pending) return;
+        pending = true;
+        setTimeout(function () { pending = false; applyBadges(); applyDetailButton(); }, 200);
     }
+    new MutationObserver(scheduleApply).observe(document.body, { childList: true, subtree: true });
 
-    waitForApiClient(function () {
-        console.log('[Glacier] ApiClient prêt, démarrage');
+    console.log('[Glacier] Script chargé ✅ (v2 / 10.11)');
+
+    function waitForReady(cb, n) {
+        n = n || 0;
+        if (getCreds()) { cb(); }
+        else if (n < 60) { setTimeout(function () { waitForReady(cb, n + 1); }, 500); }
+        else { console.log('[Glacier] credentials introuvables, abandon'); }
+    }
+    waitForReady(function () {
+        console.log('[Glacier] credentials OK, démarrage');
         loadGlacierItems();
         setInterval(loadGlacierItems, POLL_INTERVAL_MS);
-        retryDetailButton();
     });
 
 })();
