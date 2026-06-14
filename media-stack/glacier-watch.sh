@@ -19,6 +19,12 @@ mkdir -p "$STATE_DIR"
 [ -f "$DB" ] || exit 0
 command -v jq >/dev/null 2>&1 || { echo "jq requis"; exit 1; }
 
+# Au tout 1er passage du script, on enregistre l'état existant SANS notifier
+# (pas de notifs rétroactives). Ensuite, un item NOUVEAU ou un changement notifie.
+INIT_MARKER="$STATE_DIR/.initialized"
+FIRST_RUN=false
+[ -f "$INIT_MARKER" ] || FIRST_RUN=true
+
 ntfy() {  # ntfy <titre> <message> <priorité> <tags>
   curl -s -o /dev/null --max-time 15 \
     -H "Authorization: Bearer $NTFY_TOKEN" \
@@ -43,8 +49,8 @@ while IFS=$'\t' read -r id status title size; do
   # Pas de changement -> rien
   [ "$status" = "$prev" ] && continue
 
-  # 1er passage (aucun état connu) : on enregistre sans notifier
-  if [ -n "$prev" ]; then
+  # Silencieux uniquement au tout 1er passage ; sinon nouvel item/changement notifie
+  if [ "$FIRST_RUN" = false ]; then
     case "$status" in
       0)  # OnGlacier : upload terminé
           ntfy "📦 Archivé sur Glacier" \
@@ -64,3 +70,7 @@ while IFS=$'\t' read -r id status title size; do
 
   echo "$status" > "$f"
 done < <(jq -r '.[] | [(.JellyfinItemId), (.Status|tostring), (.Title), (.FileSizeBytes|tostring)] | @tsv' "$DB")
+
+# Marque l'initialisation terminée (après le tout 1er passage)
+if [ "$FIRST_RUN" = true ]; then touch "$INIT_MARKER"; fi
+exit 0
