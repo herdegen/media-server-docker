@@ -1,0 +1,39 @@
+# Jellyfin en HTTPS via Traefik (ajouté 2026-06-16)
+# PAS d'OAuth : les clients natifs (apps/TV) ne savent pas faire l'OAuth GitHub.
+# Auth = comptes Jellyfin natifs. Anti-brute-force : rate-limit sur le LOGIN seulement
+# (le client web fait bcp d'appels API -> ne pas limiter toute l'app) + fail2ban (host).
+# Backend : Jellyfin tourne en natif sur l'hôte -> via la passerelle docker.
+http:
+  routers:
+    # Route dédiée au login : priorité haute + rate-limit strict
+    jellyfin-auth:
+      rule: "Host(`jellyfin.maxibestof.com`) && PathRegexp(`(?i)/Users/AuthenticateByName`)"
+      priority: 100
+      entryPoints: [websecure]
+      service: jellyfin
+      middlewares: ["jellyfin-login-ratelimit"]
+      tls:
+        certResolver: le
+    # Route principale (tout le reste) : pas de limite, usage normal fluide
+    jellyfin:
+      rule: "Host(`jellyfin.maxibestof.com`)"
+      priority: 1
+      entryPoints: [websecure]
+      service: jellyfin
+      tls:
+        certResolver: le
+
+  services:
+    jellyfin:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:8096"
+        passHostHeader: true
+
+  middlewares:
+    # ~10 tentatives de login / minute / IP : large pour un humain, étouffe un bot
+    jellyfin-login-ratelimit:
+      rateLimit:
+        average: 10
+        burst: 5
+        period: 1m
