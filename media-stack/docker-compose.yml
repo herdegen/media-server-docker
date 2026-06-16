@@ -306,6 +306,62 @@ services:
       - /mnt/media:/mnt/media:ro
     restart: unless-stopped
 
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - UMASK=002
+    volumes:
+      - ${BAZARR_CONFIG}:/config
+      - ${MEDIA_MOVIES}:/movies
+      - ${MEDIA_TV}:/tv
+    networks:
+      - traefik-proxy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - traefik.http.routers.bazarr.rule=Host(`bazarr.maxibestof.com`)
+      - traefik.http.routers.bazarr.entrypoints=websecure
+      - traefik.http.routers.bazarr.tls.certresolver=le
+      - traefik.http.routers.bazarr.middlewares=oauth-auth@docker
+      - traefik.http.services.bazarr.loadbalancer.server.port=6767
+      - traefik.http.routers.bazarr-oauth.rule=Host(`bazarr.maxibestof.com`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.bazarr-oauth.entrypoints=websecure
+      - traefik.http.routers.bazarr-oauth.tls.certresolver=le
+      - traefik.http.routers.bazarr-oauth.service=oauth@docker
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+    volumes:
+      - ${JELLYSEERR_CONFIG}:/app/config
+    networks:
+      - traefik-proxy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.maxibestof.com`)
+      - traefik.http.routers.jellyseerr.entrypoints=websecure
+      - traefik.http.routers.jellyseerr.tls.certresolver=le
+      - traefik.http.routers.jellyseerr.middlewares=oauth-auth@docker
+      - traefik.http.services.jellyseerr.loadbalancer.server.port=5055
+      - traefik.http.routers.jellyseerr-oauth.rule=Host(`jellyseerr.maxibestof.com`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.jellyseerr-oauth.entrypoints=websecure
+      - traefik.http.routers.jellyseerr-oauth.tls.certresolver=le
+      - traefik.http.routers.jellyseerr-oauth.service=oauth@docker
+
 
 volumes:
   letsencrypt:
