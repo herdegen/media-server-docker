@@ -352,15 +352,11 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-proxy
+      # PAS d'OAuth : accès ouvert pour que d'autres se connectent avec leur compte Jellyfin (auth native Jellyseerr). 2026-06-16
       - traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.maxibestof.com`)
       - traefik.http.routers.jellyseerr.entrypoints=websecure
       - traefik.http.routers.jellyseerr.tls.certresolver=le
-      - traefik.http.routers.jellyseerr.middlewares=oauth-auth@docker
       - traefik.http.services.jellyseerr.loadbalancer.server.port=5055
-      - traefik.http.routers.jellyseerr-oauth.rule=Host(`jellyseerr.maxibestof.com`) && PathPrefix(`/oauth2/`)
-      - traefik.http.routers.jellyseerr-oauth.entrypoints=websecure
-      - traefik.http.routers.jellyseerr-oauth.tls.certresolver=le
-      - traefik.http.routers.jellyseerr-oauth.service=oauth@docker
 
 
 volumes:
