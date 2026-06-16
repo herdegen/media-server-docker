@@ -23,11 +23,12 @@ services:
       - ${GLUETUN_DATA}:/gluetun
     # Expose ici tous les ports des services qui sont derrière le VPN
     ports:
-      - "9091:9091"  # Transmission
-      - "9696:9696"  # Prowlarr
-      - "8989:8989"  # Sonarr
-      - "7878:7878"  # Radarr
-      - "8191:8191"  # FlareSolverr (optionnel, pratique pour test)
+      # Bind sur la passerelle docker (172.17.0.1) = accessible aux conteneurs (Homepage) mais PAS depuis Internet. Accès navigateur via Traefik+OAuth. (durci 2026-06-16)
+      - "172.17.0.1:9091:9091"  # Transmission
+      - "172.17.0.1:9696:9696"  # Prowlarr
+      - "172.17.0.1:8989:8989"  # Sonarr
+      - "172.17.0.1:7878:7878"  # Radarr
+      # FlareSolverr 8191 : plus publié (utilisé seulement par Prowlarr en interne via localhost dans le netns gluetun)
       - "172.17.0.1:8000:8000"  # Control server gluetun (non-public, gateway docker)
     # Healthcheck natif gluetun (binaire interne, pas de wget qui s'accumule en cas de VPN down)
     healthcheck:
@@ -296,7 +297,7 @@ services:
     network_mode: host
     environment:
       - TZ=${TZ}
-      - GLANCES_OPT=-w
+      - GLANCES_OPT=-w -B 172.17.0.1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /mnt/media:/mnt/media:ro
