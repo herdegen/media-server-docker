@@ -1,0 +1,79 @@
+# Routage des *arr derrière Traefik + OAuth (ajouté 2026-06-16)
+# Backends via la passerelle docker 172.17.0.1 (ports bindés là, non-publics).
+# Réutilise la middleware oauth-auth@docker et le service oauth@docker (oauth2-proxy).
+# Chaque app a 2 routers : l'app (protégée OAuth) + un /oauth2/ (sign-in/callback).
+http:
+  routers:
+    radarr:
+      rule: "Host(`radarr.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: radarr
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    radarr-oauth:
+      rule: "Host(`radarr.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+    sonarr:
+      rule: "Host(`sonarr.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: sonarr
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    sonarr-oauth:
+      rule: "Host(`sonarr.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+    prowlarr:
+      rule: "Host(`prowlarr.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: prowlarr
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    prowlarr-oauth:
+      rule: "Host(`prowlarr.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+    transmission:
+      rule: "Host(`transmission.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: transmission
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    transmission-oauth:
+      rule: "Host(`transmission.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+  services:
+    radarr:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:7878"
+    sonarr:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:8989"
+    prowlarr:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:9696"
+    transmission:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:9091"
