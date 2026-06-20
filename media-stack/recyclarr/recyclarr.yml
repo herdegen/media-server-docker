@@ -1,0 +1,37 @@
+# Recyclarr — guides TRaSH vers Radarr/Sonarr
+# Profils : [French VOSTFR] 1080p (HD Bluray + WEB). Pas d'Ultra-HD (anti-inflation).
+# x265 (HD) est déjà inclus en score négatif par défaut dans ces profils :
+# on télécharge du x264 propre, on réencode en x265 nous-mêmes.
+# Clés API dans secrets.yml (non versionné).
+
+radarr:
+  movies:
+    base_url: http://host.docker.internal:7878
+    api_key: !secret radarr_api_key
+
+    delete_old_custom_formats: false
+    replace_existing_custom_formats: true
+
+    quality_definition:
+      type: movie
+
+    quality_profiles:
+      - trash_id: 1addc08c4232bc2617684d517df15f75  # [French VOSTFR] HD Bluray + WEB
+        reset_unmatched_scores:
+          enabled: true
+
+sonarr:
+  series:
+    base_url: http://host.docker.internal:8989
+    api_key: !secret sonarr_api_key
+
+    delete_old_custom_formats: false
+    replace_existing_custom_formats: true
+
+    quality_definition:
+      type: series
+
+    quality_profiles:
+      - trash_id: b34c968f58433a38e0e690d42a1dc37e  # [French VOSTFR] HD Bluray + WEB (1080p)
+        reset_unmatched_scores:
+          enabled: true

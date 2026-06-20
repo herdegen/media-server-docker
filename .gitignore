@@ -58,3 +58,7 @@ build/
 bin/
 obj/
 *.user
+
+# Recyclarr secrets (clés API)
+recyclarr/secrets.yml
+secrets.yml

@@ -1,0 +1,9 @@
+[Unit]
+Description=Recyclarr sync (guides TRaSH -> Radarr/Sonarr)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v /srv/media-stack/recyclarr:/config --add-host host.docker.internal:host-gateway ghcr.io/recyclarr/recyclarr:latest sync
