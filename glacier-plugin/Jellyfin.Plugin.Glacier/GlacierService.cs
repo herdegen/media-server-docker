@@ -98,10 +98,23 @@ public class GlacierService
         if (process.ExitCode != 0)
             throw new Exception($"aws s3 cp échoué (code {process.ExitCode}) : {stderr}");
 
-        // Remplace le fichier vidéo par un stub vide avec le même nom .mkv
-        // Jellyfin garde l'entrée en lib tant que le fichier existe
+        // Remplace le fichier vidéo par un placeholder VIDÉO VALIDE (et non un stub texte).
+        // Un mini-mkv valide permet à ffprobe de réussir → Jellyfin conserve l'item,
+        // son poster et sa fiche restent accessibles pendant que le film est sur Glacier.
+        // (Le bouton Restaurer s'appuie sur la base glacier_items.json, pas sur ce fichier.)
         File.Delete(localPath);
-        await File.WriteAllTextAsync(localPath, $"GLACIER_STUB:{objectKey}");
+        var pluginDir = Path.GetDirectoryName(typeof(GlacierService).Assembly.Location)!;
+        var placeholder = Path.Combine(pluginDir, "placeholder.mkv");
+        if (File.Exists(placeholder))
+        {
+            File.Copy(placeholder, localPath, overwrite: true);
+        }
+        else
+        {
+            // Repli : ancien comportement si le placeholder est absent
+            _logger.LogWarning("[Glacier] placeholder.mkv introuvable dans {Dir}, repli sur stub texte", pluginDir);
+            await File.WriteAllTextAsync(localPath, $"GLACIER_STUB:{objectKey}");
+        }
 
         var item = new GlacierItem
         {
