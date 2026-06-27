@@ -12,8 +12,12 @@ radarr:
     delete_old_custom_formats: false
     replace_existing_custom_formats: true
 
-    quality_definition:
-      type: movie
+    # quality_definition désactivé 2026-06-27 : les tailles mini TRaSH (ex. Bluray-1080p
+    # 50.8 Mo/min ≈ 4.2 Go pour un film de 85 min) rejetaient les bons 1080p compacts
+    # (films courts/anciens, encodes x265). On laisse Radarr garder des minSize assouplis
+    # (≈5-10 Mo/min) gérés à la main → ne pas laisser Recyclarr les réécraser.
+    # quality_definition:
+    #   type: movie
 
     quality_profiles:
       - trash_id: 1addc08c4232bc2617684d517df15f75  # [French VOSTFR] HD Bluray + WEB
