@@ -36,6 +36,8 @@ v=$(curl -s --max-time 10 http://127.0.0.1:8096/System/Info/Public | jq -r .Vers
 [ -n "$v" ] && ok "Jellyfin $v répond" || ko "Jellyfin ne répond pas — journalctl -u jellyfin -n 50"
 
 echo "== Web (via Traefik)"
+# Jellyseerr met ~2 min à démarrer après un boot : on lui laisse jusqu'à 3 min avant de conclure.
+for i in $(seq 1 36); do [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://jellyseerr.maxibestof.com/api/v1/status)" = 200 ] && break; sleep 5; done
 for u in https://jellyfin.maxibestof.com/System/Info/Public https://home.maxibestof.com/ https://mcp.maxibestof.com/health https://jellyseerr.maxibestof.com/api/v1/status https://rcette.maxibestof.com/; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$u"); case "$code" in 200|302|401) ok "$code $u";; *) ko "$code $u";; esac
 done
