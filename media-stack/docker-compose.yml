@@ -15,7 +15,10 @@ services:
       - ./vpn/active.env
     environment:
       - TZ=${TZ}
-      - DOT=off
+      # DNS : gluetun récent (2026-06) a migré DOT -> DNS_UPSTREAM_RESOLVER_TYPE.
+      # On laisse le défaut = serveur DNS-over-TLS intégré (Cloudflare, chiffré, anti-fuite).
+      # Ancien "DOT=off" retiré : cassait le démarrage ("upstream type dot must be plain
+      # if the built-in DNS server is disabled"). 2026-06-29
       # --- Control server (widget VPN Homepage), auth par apikey ---
       - HTTP_CONTROL_SERVER_ADDRESS=:8000
       - HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH=/gluetun/auth/config.toml
@@ -79,8 +82,8 @@ services:
       - UMASK=002   # dossiers/médias créés en group-writable (775/664) -> archivage Glacier OK
     volumes:
       - ${SONARR_CONFIG}:/config
-      - ${MEDIA_TV}:/tv
-      - ${MEDIA_DOWNLOADS}:/downloads
+      # Montage unique parent -> hardlinks downloads<->lib OK (root folder = /data/series). 2026-06-28
+      - ${MEDIA_ROOT}:/data
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -97,8 +100,8 @@ services:
       - UMASK=002   # dossiers/médias créés en group-writable (775/664) -> archivage Glacier OK
     volumes:
       - ${RADARR_CONFIG}:/config
-      - ${MEDIA_MOVIES}:/movies
-      - ${MEDIA_DOWNLOADS}:/downloads
+      # Montage unique parent -> hardlinks downloads<->lib OK (root folder = /data/movies/movies). 2026-06-28
+      - ${MEDIA_ROOT}:/data
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -114,8 +117,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ${TRANSMISSION_CONFIG}:/config
-      - ${MEDIA_DOWNLOADS}:/downloads
-      - ${MEDIA_WATCH}:/watch
+      # Montage unique parent (download-dir=/data/downloads/complete, watch=/data/watch). 2026-06-28
+      - ${MEDIA_ROOT}:/data
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -316,8 +319,8 @@ services:
       - UMASK=002
     volumes:
       - ${BAZARR_CONFIG}:/config
-      - ${MEDIA_MOVIES}:/movies
-      - ${MEDIA_TV}:/tv
+      # Montage unique parent -> accède aux médias aux chemins /data annoncés par *arr (pas de path mapping). 2026-06-28
+      - ${MEDIA_ROOT}:/data
     networks:
       - traefik-proxy
     extra_hosts:
@@ -337,7 +340,9 @@ services:
       - traefik.http.routers.bazarr-oauth.service=oauth@docker
 
   jellyseerr:
-    image: fallenbagel/jellyseerr:latest
+    # Projet renommé Jellyseerr -> Seerr (2026). Ancienne image fallenbagel/jellyseerr
+    # gelée à 2.7.3 ; la 3.x vit sous seerr-team/seerr. Bascule 2026-06-29.
+    image: ghcr.io/seerr-team/seerr:latest
     container_name: jellyseerr
     environment:
       - TZ=${TZ}

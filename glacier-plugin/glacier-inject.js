@@ -70,7 +70,7 @@
     }
 
     function applyBadges() {
-        document.querySelectorAll('[data-id]').forEach(function (card) {
+        document.querySelectorAll('.card[data-id]').forEach(function (card) {
             const itemId = (card.getAttribute('data-id') || '').toLowerCase();
             if (!itemId || !glacierItems[itemId]) return;
             if (card.querySelector('.glacier-badge')) return;
@@ -81,9 +81,9 @@
             badge.style.cssText = ['position:absolute', 'top:6px', 'left:6px', 'background:rgba(30,120,200,0.92)', 'color:#fff', 'border-radius:4px', 'padding:2px 6px', 'font-size:11px', 'font-weight:bold', 'z-index:10', 'cursor:pointer', 'user-select:none', 'box-shadow:0 1px 4px rgba(0,0,0,0.4)'].join(';');
             badge.textContent = statusLabel(item.Status);
             badge.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); openRestoreDialog(itemId); });
-            const cardInner = card.querySelector('.cardContent') || card;
-            cardInner.style.position = 'relative';
-            cardInner.appendChild(badge);
+            const host = card.querySelector('.cardScalable') || card.querySelector('.cardBox') || card;
+            host.style.position = 'relative';
+            host.appendChild(badge);
         });
     }
 

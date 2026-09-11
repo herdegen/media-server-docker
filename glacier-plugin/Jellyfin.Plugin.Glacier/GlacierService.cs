@@ -10,6 +10,9 @@ namespace Jellyfin.Plugin.Glacier;
 
 public class GlacierService
 {
+    // Tag posé sur les items archivés → expose un filtre natif Jellyfin (Filtres → Tags).
+    public const string GlacierTag = "Glacier";
+
     private readonly GlacierDb _db;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<GlacierService> _logger;
@@ -31,8 +34,8 @@ public class GlacierService
             ForcePathStyle = true,
             SignatureVersion = "4",
             AuthenticationRegion = config.Region,
-            Timeout = TimeSpan.FromHours(2),
-            ReadWriteTimeout = TimeSpan.FromHours(2)
+            Timeout = TimeSpan.FromHours(2)
+            // ReadWriteTimeout retiré : obsolète dans AWSSDK récent (ignoré en async)
         };
         return new AmazonS3Client(credentials, s3Config);
     }
@@ -51,6 +54,48 @@ public class GlacierService
 
     public async Task<GlacierItem?> GetItemAsync(Guid itemId)
         => await _db.GetByItemIdAsync(itemId);
+
+    // Ajoute ou retire le tag "Glacier" sur l'item Jellyfin et persiste.
+    // present=true tant que le film n'est pas re-disponible localement (Status != Available).
+    private async Task ApplyTagAsync(Guid itemId, bool present)
+    {
+        var item = _libraryManager.GetItemById(itemId);
+        if (item == null)
+        {
+            _logger.LogWarning("[Glacier] Tag : item {ItemId} introuvable, ignoré", itemId);
+            return;
+        }
+
+        var tags = (item.Tags ?? Array.Empty<string>()).ToList();
+        var has = tags.Contains(GlacierTag);
+        if (present == has) return; // déjà dans l'état voulu, pas d'écriture inutile
+
+        if (present) tags.Add(GlacierTag);
+        else tags.RemoveAll(t => t == GlacierTag);
+
+        item.Tags = tags.ToArray();
+        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None);
+        _logger.LogInformation("[Glacier] Tag '{Tag}' {Action} sur {Title}",
+            GlacierTag, present ? "ajouté" : "retiré", item.Name);
+    }
+
+    // Réconcilie les tags avec l'état de la base (backfill des films déjà archivés
+    // + auto-réparation si un refresh de métadonnées a effacé le tag).
+    public async Task ReconcileTagsAsync()
+    {
+        var items = await _db.GetAllAsync();
+        foreach (var item in items)
+        {
+            try
+            {
+                await ApplyTagAsync(item.JellyfinItemId, item.Status != GlacierStatus.Available);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Glacier] Réconciliation du tag échouée pour {Title}", item.Title);
+            }
+        }
+    }
 
     // Envoie un film vers Glacier et crée un placeholder local
     public async Task SendToGlacierAsync(Guid itemId, string objectKey)
@@ -127,6 +172,7 @@ public class GlacierService
         };
 
         await _db.UpsertAsync(item);
+        await ApplyTagAsync(itemId, true);
         _logger.LogInformation("[Glacier] {Title} archivé avec succès", item.Title);
     }
 
@@ -193,6 +239,9 @@ public class GlacierService
                     item.Status = GlacierStatus.Available;
                     item.AvailableAt = DateTime.UtcNow;
                     await _db.UpsertAsync(item);
+
+                    // Le film est re-disponible localement → retirer le tag Glacier
+                    await ApplyTagAsync(item.JellyfinItemId, false);
 
                     // Supprimer le placeholder
                     var placeholder = item.LocalPath + ".glacier";

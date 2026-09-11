@@ -1,0 +1,15 @@
+{
+  "category": "General",
+  "changelog": "1.1.0.0 : portage Jellyfin 12.0 (.NET 10). 1.0.0.0 : version initiale.",
+  "description": "Archivage et récupération de films depuis Scaleway Glacier",
+  "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Glacier",
+  "overview": "Gérez votre cold storage Scaleway Glacier directement depuis Jellyfin",
+  "owner": "local",
+  "targetAbi": "12.0.0.0",
+  "timestamp": "2026-09-11T00:00:00.0000000Z",
+  "version": "1.1.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "assemblies": []
+}

@@ -547,7 +547,7 @@ server.registerTool(
           SortOrder: "Descending",
           Limit: limit,
         },
-        headers: { "X-Emby-Token": cfg.jellyfinKey },
+        headers: { Authorization: `MediaBrowser Token="${cfg.jellyfinKey}"` }, // 10.11+ : X-Emby-Token déprécié, désactivé par défaut en 12.0
       });
 
       const items = r.data?.Items || [];

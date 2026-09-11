@@ -12,7 +12,7 @@ DISK_MOUNT="/mnt/media"
 DISK_THRESHOLD=90
 GLUETUN_CTRL="http://172.17.0.1:8000/v1/publicip/ip"
 GLUETUN_AUTH="/srv/docker/gluetun/auth/config.toml"
-EXPECTED_CONTAINERS="gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances"
+EXPECTED_CONTAINERS="gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr"
 
 # --- Secrets ntfy (topic + token), hors git ---
 # shellcheck disable=SC1091

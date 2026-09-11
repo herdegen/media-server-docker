@@ -1,0 +1,66 @@
+# rcette — backend API + MCP + B.O. (ajouté 2026-06-18)
+# Redirect HTTP->HTTPS ajouté 2026-06-20 (middleware sur entrypoint web)
+http:
+  middlewares:
+    rcette-https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+  routers:
+    # --- HTTPS (websecure) ---
+    rcette-api:
+      rule: "Host(`rcette.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: rcette-api
+      tls:
+        certResolver: le
+
+    rcette-bo:
+      rule: "Host(`bo.rcette.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: rcette-bo
+      tls:
+        certResolver: le
+
+    # PWA foyer (ajouté 2026-09-05). HTTPS obligatoire : sans lui, pas de
+    # service worker, donc pas de Web Push.
+    rcette-foyer:
+      rule: "Host(`foyer.rcette.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: rcette-foyer
+      tls:
+        certResolver: le
+
+    # --- HTTP (web) : redirige vers HTTPS ---
+    rcette-api-http:
+      rule: "Host(`rcette.maxibestof.com`)"
+      entryPoints: [web]
+      middlewares: ["rcette-https-redirect"]
+      service: rcette-api
+
+    rcette-bo-http:
+      rule: "Host(`bo.rcette.maxibestof.com`)"
+      entryPoints: [web]
+      middlewares: ["rcette-https-redirect"]
+      service: rcette-bo
+
+    rcette-foyer-http:
+      rule: "Host(`foyer.rcette.maxibestof.com`)"
+      entryPoints: [web]
+      middlewares: ["rcette-https-redirect"]
+      service: rcette-foyer
+
+  services:
+    rcette-api:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:3030"
+    rcette-bo:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:3040"
+    rcette-foyer:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:3050"

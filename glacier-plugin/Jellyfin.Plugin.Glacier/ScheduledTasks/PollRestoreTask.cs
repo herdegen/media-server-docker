@@ -27,6 +27,10 @@ public class PollRestoreTask : IScheduledTask
 
         await Plugin.Instance.Service.PollAndDownloadAsync();
 
+        // Réconcilie les tags Glacier (backfill des films déjà archivés +
+        // auto-réparation si un refresh de métadonnées les a effacés).
+        await Plugin.Instance.Service.ReconcileTagsAsync();
+
         progress.Report(100);
         _logger.LogInformation("[Glacier] Poll terminé");
     }
