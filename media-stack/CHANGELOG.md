@@ -4,6 +4,58 @@ Historique des modifications apportées au stack média.
 
 ---
 
+## 2026-10-09
+
+### Lidarr/Soularr : incident et garde-fou
+
+- Le refresh planifié de Lidarr a re-surveillé ~10 000 albums (malgré `monitorNewItems=none`). Soularr en a grabbé 6 ; Lidarr a **supprimé définitivement** les originaux de Ladytron *604* (16 pistes) et Pink Floyd *A Momentary Lapse of Reason* (10 pistes), remplacés par les versions Soulseek (originaux toujours sur le PC local). 4 albums non demandés restés dans `downloads/complete/soulseek`.
+- Correctifs : **artistes non surveillés** par défaut (Lidarr ne veut rien pour un artiste non surveillé) ; **corbeille Lidarr** `/mnt/media/.lidarr-recycle` (30 j) ; **`soularr-guard.sh`** + `soularr-guard.timer` (chaque minute) : stoppe Soularr et notifie si plus de 20 albums voulus sont absents de `/var/lib/soularr/approved_album_ids.txt`.
+- Lancé : complétion des 194 albums incomplets validés (109 artistes surveillés, `monitorNewItems=none`), via Soularr + `MissingAlbumSearch`. Il existe en réalité 873 albums incomplets (dont ~450 à un seul titre) — non lancés (≈ 85 Go).
+
+### Musique : alignement sur le rangement local
+
+- Inventaire local (empreinte SHA1 taille + 1er/dernier Mo) comparé au serveur : 100 % de l'audio local déjà présent, **rien à renvoyer**.
+- Appliqué : 7 834 déplacements (rename, 0 copie), 2 178 hardlinks pour les doublons locaux, 5 459 fichiers serveur non appariés rangés dans `/mnt/media/music/_restes_serveur/` (chemins d'origine conservés : déchets `.ini`/`Thumbs.db`/`.itc2`, 787 `.bc!` BitComet incomplets, ~160 audio dont ~69 doublons), 3 353 dossiers vides supprimés. Lidarr stoppé pendant l'opération, puis `RescanFolders` + refresh de la bibliothèque Jellyfin « Musiques ».
+- Plan, scripts et journal : `/var/lib/media-reorg/`. **Annulation** : `sudo python3 -I /var/lib/media-reorg/undo_reorg.py /var/lib/media-reorg/journal-20261009.tsv` (ne recrée pas les dossiers vides supprimés).
+- `_restes_serveur` trié puis **supprimé** : déchets (`.ini`, `Thumbs.db`, `.itc2`, 787 `.bc!`, AppleDouble `._*`, iTunes, `.ipa`, pochettes, fichiers de rip) = 28,4 Go libérés ; 91 audio + 15 modules vérifiés **doublons exacts** (empreinte du flux audio via ffmpeg, tags exclus) puis supprimés. Liste complète : `/var/lib/media-reorg/dechets_supprimes-20261009.txt`.
+- Restaurés dans la bibliothèque : `Daft Punk/Random Access Memories (2013)` (seul exemplaire, fichiers « - Copie » renommés) et `MaXi Compil` (compilation conservée à la demande, morceaux aussi présents par artiste). À répercuter en local.
+- 3 MP3 vides (0 octet) supprimés : Funkadelic *Uncle Jam Wants You* pistes 4 et 5 (désormais manquantes), ELO `Send It~#~.mp3` (doublon cassé ; *Balance of Power* est complet et vérifié au décodage).
+
+---
+
+## 2026-10-08
+
+### Lidarr (musique)
+
+- Nouveau conteneur `lidarr` (`lscr.io/linuxserver/lidarr`, v3.1) derrière gluetun, port `172.17.0.1:8686` publié par gluetun (gluetun + services accrochés recréés). Config `/var/lib/lidarr`, auth `External` (derrière OAuth), `https://lidarr.maxibestof.com` (route dans `traefik/dynamic/arr.yml`).
+- Root folder `/data/music` (profil qualité Standard, métadonnées Standard). Les 1054 dossiers existants ne sont **pas** importés automatiquement : *Library → Import* dans l'UI.
+- `/mnt/media/music` : propriétaire 1002 conservé, groupe passé à 1000 (PGID conteneurs) + `g+w` + setgid sur les dossiers, pour que Lidarr puisse écrire.
+- Transmission catégorie `music-lidarr` (→ `/data/downloads/complete/music-lidarr`). Prowlarr → Lidarr en fullSync : seul **1337x** expose des catégories musique.
+- Intégré à `malware-guard.sh` (file `/api/v1/queue`, `arr_purge` prend la version d'API), `alert-check.sh`, `post-reboot-check.sh` (+ romarr qui manquait), `backup-config.sh`, widget Homepage (`HOMEPAGE_VAR_LIDARR_KEY` dans `homepage.env`).
+- Le scan initial a auto-ajouté 768 artistes en « tout surveiller » → 4046 albums manquants + 878 incomplets prêts à être cherchés (même piège que Sonarr). **Tout passé en non surveillé** avant le moindre grab ; artistes `monitorNewItems=none` ; root folder par défaut `existing`/`none`. Règle : on ne surveille que ce qu'on demande.
+- **Soulseek** : `slskd` (client, `slskd.maxibestof.com` OAuth + login propre, port `172.17.0.1:5030` via gluetun) + `soularr` (toutes les 5 min, albums **surveillés manquants** Lidarr → recherche slskd → import Lidarr, MP3 uniquement). Configs `/var/lib/slskd/slskd.yml`, `/var/lib/soularr/config.ini`, identifiants dans `/var/lib/slskd/credentials.txt` (600). **Aucun partage, upload 0 slot** (choix délibéré : on ne diffuse pas la bibliothèque). Téléchargements dans `/data/downloads/complete/soulseek` (non couverts par malware-guard, Lidarr n'importe que l'audio).
+- **Correctif** : `download-dir` de Transmission était resté sur `/config/hooktest` après le test du hook malware → rétabli à `/data/downloads/complete` (aucun torrent concerné).
+
+### Anti-malware : on bloque au lieu d'alerter
+
+- Constat : 8 torrents / 8,3 Go de faux `.exe` (titres propres, LimeTorrents/TorrentDownload) accumulés pendant 3 semaines. Le custom format « Executable (malware) » ne voit que le titre, `alert-check` (section 5) ne faisait qu'alerter, et Sonarr laissait les items en `importPending` sans jamais chercher de remplacement. Purgés.
+- **Couche 2 — hook `script-torrent-added`** : `/var/lib/transmission-daemon/malware-guard-hook.sh` (vu `/config/...` dans le conteneur, aucune modif du compose). Inspecte la liste de fichiers à l'ajout et supprime le torrent avant tout téléchargement ; inscrit le hash dans `quarantine.list`. Log `malware-guard-hook.log`, `DRY=1` pour tester.
+- **Couche 3 — `malware-guard.sh`** + `malware-guard.timer` (5 min) : détection via RPC Transmission sur la liste de fichiers réelle, `DELETE /api/v3/queue/{id}?removeFromClient=true&blocklist=true&skipRedownload=false` (release blacklistée + recherche de remplacement), consommation de `quarantine.list` (renommage atomique `.processing`), balayage des orphelins limité à `/mnt/media/downloads`. Log `alerts/malware-guard.log`, `--dry-run`.
+- Correctif : verrou `flock` (`/run/lock/malware-guard.lock`) — deux exécutions simultanées (manuelle + timer) traitaient deux fois la quarantaine. Test de bout en bout OK (faux `.torrent` avec `.exe` → tué à l'ajout → hash consommé, une seule exécution journalisée).
+
+### Sonarr : chemins morts
+
+- 11 séries sur 23 pointaient vers un dossier inexistant (nom du dossier de release, parfois mauvais appariement TheTVDB) → `episodeFileCount=0` → 864 épisodes monitorés recherchés en boucle, principal moteur du remplissage disque.
+- `path` réparés + `RescanSeries` (≈ 50 Go réadoptés), 4 séries fantômes supprimées (`deleteFiles=false`). `/mnt/media` : 91 %.
+
+### Divers
+
+- Prowlarr : world-torrent et Torrent9 bloqués par changement de domaine → à réajouter.
+- `openvpn-dco-dkms` purgé (module compilé pour le seul kernel 6.12.48, `dkms.service` en échec depuis le 2026-09-11 ; inutile, le VPN est en WireGuard/NordLynx).
+- Reboot sur kernel 6.12.111 (6.12.107 chargé).
+
+---
+
 ## 2026-09-11
 
 ### Jellyfin 10.11.11 → 12.0.0 (+ jellyfin-ffmpeg8 8.1.2)

@@ -1,0 +1,116 @@
+- VPN & Réseau:
+    - VPN (NordVPN):
+        icon: gluetun.png
+        description: Tunnel WireGuard / NordLynx
+        server: my-docker
+        container: gluetun
+        widget:
+          type: gluetun
+          url: http://host.docker.internal:8000
+          key: "{{HOMEPAGE_VAR_GLUETUN_KEY}}"
+    - Contrôle VPN (switch / pays):
+        icon: mdi-vpn
+        href: https://home.maxibestof.com/vpn
+        description: Changer de VPN ou de pays
+
+- Ressources serveur:
+    - CPU:
+        icon: mdi-cpu-64-bit
+        widget:
+          type: glances
+          url: http://host.docker.internal:61208
+          version: 4
+          metric: cpu
+          chart: false
+    - Mémoire:
+        icon: mdi-memory
+        widget:
+          type: glances
+          url: http://host.docker.internal:61208
+          version: 4
+          metric: memory
+          chart: false
+    - Disque /mnt/media:
+        icon: mdi-harddisk
+        widget:
+          type: glances
+          url: http://host.docker.internal:61208
+          version: 4
+          metric: fs:/mnt/media
+          chart: false
+    - Température CPU:
+        icon: mdi-thermometer
+        widget:
+          type: glances
+          url: http://host.docker.internal:61208
+          version: 4
+          metric: sensor:Package id 0
+          chart: false
+
+- Média & Téléchargements:
+    - Sonarr:
+        icon: sonarr.png
+        href: https://sonarr.maxibestof.com
+        description: Séries TV
+        widget:
+          type: sonarr
+          url: http://host.docker.internal:8989
+          key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
+          enableQueue: true
+    - Radarr:
+        icon: radarr.png
+        href: https://radarr.maxibestof.com
+        description: Films
+        widget:
+          type: radarr
+          url: http://host.docker.internal:7878
+          key: "{{HOMEPAGE_VAR_RADARR_KEY}}"
+          enableQueue: true
+    - Lidarr:
+        icon: lidarr.png
+        href: https://lidarr.maxibestof.com
+        description: Musique
+        widget:
+          type: lidarr
+          url: http://host.docker.internal:8686
+          key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
+    - Prowlarr:
+        icon: prowlarr.png
+        href: https://prowlarr.maxibestof.com
+        description: Indexeurs
+        widget:
+          type: prowlarr
+          url: http://host.docker.internal:9696
+          key: "{{HOMEPAGE_VAR_PROWLARR_KEY}}"
+    - Transmission:
+        icon: transmission.png
+        href: https://transmission.maxibestof.com
+        description: Téléchargements torrent
+        widget:
+          type: transmission
+          url: http://host.docker.internal:9091
+
+- Jellyfin:
+    - Jellyfin:
+        icon: jellyfin.png
+        href: http://<SERVER_IP>:8096
+        description: Médiathèque
+        # Jellyfin 12 a supprime les routes /emby/ et l'auth api_key= que le widget
+        # natif "jellyfin" utilise toujours (gabarit {url}/emby/{endpoint}?api_key={key},
+        # encore present en Homepage 2.4.0) -> 404 a corps vide -> JSON.parse error.
+        # Contournement : customapi + auth moderne "Authorization: MediaBrowser Token".
+        widget:
+          type: customapi
+          url: http://host.docker.internal:8096/Items/Counts
+          method: GET
+          headers:
+            Authorization: MediaBrowser Token="{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+          mappings:
+            - field: MovieCount
+              label: Films
+            - field: SeriesCount
+              label: Series
+            - field: EpisodeCount
+              label: Episodes
+            - field: SongCount
+              label: Titres

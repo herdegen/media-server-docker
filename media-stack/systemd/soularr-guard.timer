@@ -1,0 +1,11 @@
+[Unit]
+Description=Garde-fou Soularr chaque minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=soularr-guard.service
+
+[Install]
+WantedBy=timers.target

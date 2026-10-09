@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./encode_hevc.sh            → encode le prochain film de la liste
+#   ./encode_hevc.sh --count 10 → encode les 10 prochains films
 #   ./encode_hevc.sh --all      → encode tous les films en séquence
 #   ./encode_hevc.sh --dry-run  → affiche ce qui serait fait sans encoder
 #   ./encode_hevc.sh --status   → affiche l'avancement
@@ -19,9 +20,14 @@ TMP_DIR="/mnt/media/movies/encode_tmp"
 LOG_FILE="/srv/media-stack/encode.log"
 
 MODE="next"
+COUNT=1
 [ "$1" = "--all" ]     && MODE="all"
 [ "$1" = "--dry-run" ] && MODE="dry"
 [ "$1" = "--status" ]  && MODE="status"
+if [ "$1" = "--count" ] && [ -n "$2" ] && [ "$2" -eq "$2" ] 2>/dev/null; then
+  MODE="count"
+  COUNT="$2"
+fi
 
 touch "$DONE_LIST"
 mkdir -p "$TMP_DIR"
@@ -141,6 +147,10 @@ fi
 if [ "$MODE" = "next" ] || [ "$MODE" = "dry" ]; then
   next=$(echo "$queue" | head -1)
   encode_film "$next"
+elif [ "$MODE" = "count" ]; then
+  echo "$queue" | head -"$COUNT" | while IFS= read -r folder; do
+    encode_film "$folder"
+  done
 elif [ "$MODE" = "all" ]; then
   echo "$queue" | while IFS= read -r folder; do
     encode_film "$folder"

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>maxibestof — console d'ops</title>
+<link rel="stylesheet" href="/_ops/style.css">
+</head>
+<body>
+<!-- filtre de lueur partage par la carte, la jauge et l'anneau -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="sglow" x="-80%" y="-80%" width="260%" height="260%">
+    <feGaussianBlur stdDeviation="2.4" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs></svg>
+
+<canvas id="rain" aria-hidden="true"></canvas>
+
+<header class="bar">
+  <div class="brand">MAXIBESTOF<span class="caret">_</span></div>
+  <div class="bar-right">
+    <div class="kv"><span class="k">uptime</span><span class="v" id="uptime">—</span></div>
+    <div class="kv"><span class="k">horloge</span><span class="v" id="clock">—</span></div>
+    <div class="kv"><span class="k">votre IP</span><span class="v" id="viewer-ip">—</span></div>
+    <div class="kv"><span class="k">flux</span><span class="v" id="link-state">connexion…</span></div>
+  </div>
+</header>
+
+<main>
+  <!-- ================= carte + tunnel ================= -->
+  <section class="panel wide" id="p-map">
+    <h2>liaison chiffrée</h2>
+    <div class="map-wrap">
+      <svg id="map" viewBox="0 0 720 360" preserveAspectRatio="xMidYMid meet" aria-label="Carte du tunnel VPN"></svg>
+      <div class="map-legend">
+        <div class="ep" id="ep-viewer">
+          <div class="ep-h"><i class="dot you"></i>VOUS</div>
+          <div class="ep-city">—</div>
+          <div class="ep-meta">—</div>
+        </div>
+        <div class="ep-arrow">━━▶</div>
+        <div class="ep" id="ep-server">
+          <div class="ep-h"><i class="dot src"></i>SERVEUR</div>
+          <div class="ep-city">—</div>
+          <div class="ep-meta">—</div>
+        </div>
+        <div class="ep-arrow">━━▶</div>
+        <div class="ep" id="ep-vpn">
+          <div class="ep-h"><i class="dot dst"></i>SORTIE VPN</div>
+          <div class="ep-city">—</div>
+          <div class="ep-meta">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= cpu ================= -->
+  <section class="panel" id="p-cpu">
+    <h2>processeur</h2>
+    <div class="big"><span id="cpu-val">—</span><small>%</small></div>
+    <div class="sub" id="cpu-sub">—</div>
+    <canvas class="chart" id="c-cpu" height="88"></canvas>
+    <div class="legend">
+      <span><i class="sw a"></i>total</span>
+      <span><i class="sw b"></i>système</span>
+      <span><i class="sw c"></i>attente disque</span>
+    </div>
+  </section>
+
+  <!-- ================= memoire ================= -->
+  <section class="panel" id="p-mem">
+    <h2>mémoire</h2>
+    <div class="big"><span id="mem-val">—</span><small>%</small></div>
+    <div class="sub" id="mem-sub">—</div>
+    <canvas class="chart" id="c-mem" height="88"></canvas>
+    <div class="legend"><span><i class="sw a"></i>occupation</span></div>
+  </section>
+
+  <!-- ================= temperature ================= -->
+  <section class="panel" id="p-temp">
+    <h2>températures</h2>
+    <div class="temp-row">
+      <svg id="gauge" viewBox="0 0 132 132" aria-label="Jauge de température"></svg>
+      <div class="cores" id="cores"></div>
+    </div>
+    <div class="sub" id="temp-sub">—</div>
+  </section>
+
+  <!-- ================= reseau ================= -->
+  <section class="panel" id="p-net">
+    <h2>trafic réseau</h2>
+    <div class="net-head">
+      <div><span class="k">↓ descente</span><span class="v big2" id="net-rx">—</span></div>
+      <div><span class="k">↑ montée</span><span class="v big2" id="net-tx">—</span></div>
+    </div>
+    <canvas class="chart" id="c-net" height="96"></canvas>
+    <div class="sub" id="net-sub">—</div>
+  </section>
+
+  <!-- ================= disque ================= -->
+  <section class="panel" id="p-disk">
+    <h2>stockage média</h2>
+    <div class="disk-row">
+      <svg id="ring" viewBox="0 0 132 132" aria-label="Occupation du disque"></svg>
+      <div class="disk-meta">
+        <div class="kv2"><span class="k">libre</span><span class="v" id="disk-free">—</span></div>
+        <div class="kv2"><span class="k">occupé</span><span class="v" id="disk-used">—</span></div>
+        <div class="kv2"><span class="k">total</span><span class="v" id="disk-size">—</span></div>
+        <div class="warnbox" id="disk-warn" hidden>
+          <span class="wtag">SEUIL</span>
+          <span id="disk-warn-txt">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= telechargements en cours ================= -->
+  <section class="panel" id="p-dl">
+    <h2>téléchargements en cours</h2>
+    <div class="sub" id="dl-sub">—</div>
+    <div class="dlist" id="dl-list"></div>
+  </section>
+
+  <!-- ================= glacier ================= -->
+  <section class="panel" id="p-glacier">
+    <h2>archivage glacier</h2>
+    <div class="sub" id="glacier-sub">analyse…</div>
+    <div class="alist" id="glacier-active"></div>
+    <div class="glist" id="glacier-list"></div>
+  </section>
+
+  <!-- ================= services (repris de l'ancienne home) ================= -->
+  <section class="panel wide" id="p-services">
+    <h2>services</h2>
+    <div class="svcs" id="svcs"></div>
+  </section>
+
+  <!-- ================= checks admin ================= -->
+  <section class="panel wide" id="p-checks">
+    <h2>contrôle système</h2>
+    <div class="checks" id="checks"></div>
+  </section>
+</main>
+
+<script src="/_ops/app.js"></script>
+</body>
+</html>

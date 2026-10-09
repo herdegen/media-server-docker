@@ -31,6 +31,9 @@ services:
       - "172.17.0.1:9696:9696"  # Prowlarr
       - "172.17.0.1:8989:8989"  # Sonarr
       - "172.17.0.1:7878:7878"  # Radarr
+      - "172.17.0.1:6868:6868"  # ROMarr
+      - "172.17.0.1:8686:8686"  # Lidarr
+      - "172.17.0.1:5030:5030"  # slskd (Soulseek)
       # FlareSolverr 8191 : plus publié (utilisé seulement par Prowlarr en interne via localhost dans le netns gluetun)
       - "172.17.0.1:8000:8000"  # Control server gluetun (non-public, gateway docker)
     # Healthcheck natif gluetun (binaire interne, pas de wget qui s'accumule en cas de VPN down)
@@ -119,6 +122,89 @@ services:
       - ${TRANSMISSION_CONFIG}:/config
       # Montage unique parent (download-dir=/data/downloads/complete, watch=/data/watch). 2026-06-28
       - ${MEDIA_ROOT}:/data
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lidarr:
+    # *arr pour la musique (root folder /data/music). 2026-10-08
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - UMASK=002
+    volumes:
+      - /var/lib/lidarr:/config
+      # Montage unique parent -> hardlinks downloads<->lib OK (root folder = /data/music)
+      - ${MEDIA_ROOT}:/data
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  slskd:
+    # Client Soulseek (source musique de Lidarr via Soularr). Config /var/lib/slskd/slskd.yml. 2026-10-08
+    image: slskd/slskd:latest
+    container_name: slskd
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      - SLSKD_REMOTE_CONFIGURATION=false
+    volumes:
+      - /var/lib/slskd:/app
+      - ${MEDIA_ROOT}:/data
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  soularr:
+    # Pont Lidarr (albums surveillés manquants) -> slskd -> import Lidarr. Config /var/lib/soularr/config.ini
+    image: mrusse08/soularr:latest
+    container_name: soularr
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      - SCRIPT_INTERVAL=300
+      - WEBUI_ENABLED=false
+    volumes:
+      - /var/lib/soularr:/data
+      - ${MEDIA_ROOT}/downloads/complete/soulseek:/downloads
+    network_mode: "service:gluetun"
+    depends_on:
+      - slskd
+      - lidarr
+    restart: unless-stopped
+
+  romarr:
+    # *arr pour les ROMs (Prowlarr -> Transmission -> /srv/games, lu par le plugin Jellyfin Moonbase). 2026-09-28
+    image: ghcr.io/blizzhacker/romarr:latest
+    container_name: romarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+      # Seed au 1er démarrage uniquement, ensuite tout se règle dans l'UI
+      - PROWLARR_URL=http://localhost:9696
+      - LIBRARY_KIND=folder
+      - LIBRARY_PATH=/roms
+      - LOG_LEVEL=INFO
+    volumes:
+      - /var/lib/romarr:/config
+      - /srv/games:/roms
+      # ROMarr range la Megadrive dans "genesis-slash-megadrive", nom que Moonbase ne reconnaît pas
+      - /srv/games/genesis:/roms/genesis-slash-megadrive
+      # Même chemin que celui rapporté par Transmission
+      - ${MEDIA_ROOT}/downloads:/data/downloads:ro
+      # Correctif local : ROMarr 0.9.0 ne sait pas lister les téléchargements finis de Transmission
+      - ./romarr/sitecustomize.py:/usr/local/lib/python3.13/site-packages/sitecustomize.py:ro
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -245,7 +331,7 @@ services:
       - traefik.http.routers.oauth-home.priority=100
 
   homepage:
-    image: ghcr.io/gethomepage/homepage:latest
+    image: ghcr.io/gethomepage/homepage:v1.13.2
     container_name: homepage
     environment:
       - TZ=${TZ}
@@ -266,10 +352,21 @@ services:
       - traefik.docker.network=traefik-proxy
       - traefik.http.services.homepage.loadbalancer.server.port=3000
       - traefik.http.services.homepage.loadbalancer.passhostheader=true
+      # Homepage reste le CATCH-ALL du domaine (priorite par defaut, la plus
+      # basse) : ses assets absolus /_next/..., /api/config/..., /favicon...
+      # lui parviennent donc toujours, meme quand il est affiche sous /old.
       - traefik.http.routers.homepage.rule=Host(`home.maxibestof.com`)
       - traefik.http.routers.homepage.entrypoints=websecure
       - traefik.http.routers.homepage.tls.certresolver=le
       - traefik.http.routers.homepage.middlewares=oauth-auth@docker
+      # L'ancien dashboard est servi sous /old (prefixe retire apres auth).
+      - traefik.http.middlewares.old-strip.stripprefix.prefixes=/old
+      - traefik.http.routers.homepageold.rule=Host(`home.maxibestof.com`) && PathPrefix(`/old`)
+      - traefik.http.routers.homepageold.entrypoints=websecure
+      - traefik.http.routers.homepageold.tls.certresolver=le
+      - traefik.http.routers.homepageold.priority=250
+      - traefik.http.routers.homepageold.service=homepage
+      - traefik.http.routers.homepageold.middlewares=oauth-auth@docker,old-strip@docker
 
   vpn-control:
     build:
@@ -295,6 +392,72 @@ services:
       - traefik.http.routers.vpnctl.tls.certresolver=le
       - traefik.http.routers.vpnctl.priority=200
       - traefik.http.routers.vpnctl.middlewares=vpn-strip@docker,oauth-auth@docker
+
+  # Console d'ops graphique : /ops sur home.maxibestof.com (meme OAuth que le
+  # dashboard). Agrege Glances + le control server gluetun cote serveur, car
+  # ni l'un ni l'autre n'est joignable depuis un navigateur.
+  ops-console:
+    build:
+      context: ./ops-console
+    container_name: ops-console
+    environment:
+      - TZ=${TZ}
+      # Lecture seule du bucket Glacier pour suivre les uploads multipart en
+      # cours (le plugin Jellyfin ne publie aucune progression). Memes cles que
+      # backup-config.sh, resolues depuis .env par compose.
+      - SCW_ACCESS_KEY=${SCW_ACCESS_KEY}
+      - SCW_SECRET_KEY=${SCW_SECRET_KEY}
+      - SCW_REGION=${SCW_REGION}
+      - GLACIER_BUCKET=jellyfin-glacier
+    # memes cles que Homepage (sonarr/radarr/prowlarr/jellyfin) : pas de
+    # duplication de secrets, le fichier reste hors git.
+    env_file: ./homepage.env
+    volumes:
+      - /srv/docker/gluetun/auth/.apikey.txt:/gluetun-auth/.apikey.txt:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - traefik-proxy
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-proxy
+      - traefik.http.services.opsconsole.loadbalancer.server.port=8080
+      - traefik.http.middlewares.ops-strip.stripprefix.prefixes=/ops
+      #
+      # La console occupe desormais la RACINE de home.maxibestof.com.
+      # Homepage reste le catch-all du domaine (voir son bloc) : c'est ce qui
+      # permet a ses assets absolus (/_next/..., /api/config/..., favicons)
+      # de continuer a lui parvenir alors qu'il est servi sous /old.
+      # La console ne revendique donc que des chemins precis :
+      #   Path(`/`)      la page d'accueil, exactement
+      #   /_ops/...      ses propres CSS/JS
+      #   /api/state     /api/glacier   ses propres endpoints
+      # Aucun de ces chemins n'est utilise par Homepage -> pas de collision.
+      #
+      # 1) racine exacte
+      - traefik.http.routers.opsroot.rule=Host(`home.maxibestof.com`) && Path(`/`)
+      - traefik.http.routers.opsroot.entrypoints=websecure
+      - traefik.http.routers.opsroot.tls.certresolver=le
+      - traefik.http.routers.opsroot.priority=300
+      - traefik.http.routers.opsroot.service=opsconsole
+      - traefik.http.routers.opsroot.middlewares=oauth-auth@docker
+      # 2) assets + API de la console (pas de strip : les chemins sont deja bons)
+      - traefik.http.routers.opsassets.rule=Host(`home.maxibestof.com`) && (PathPrefix(`/_ops/`) || PathPrefix(`/api/state`) || PathPrefix(`/api/glacier`))
+      - traefik.http.routers.opsassets.entrypoints=websecure
+      - traefik.http.routers.opsassets.tls.certresolver=le
+      - traefik.http.routers.opsassets.priority=300
+      - traefik.http.routers.opsassets.service=opsconsole
+      - traefik.http.routers.opsassets.middlewares=oauth-auth@docker
+      # 3) /ops conserve comme alias historique
+      # ORDRE DES MIDDLEWARES : Traefik les applique de gauche a droite. Si le
+      # strip passait avant l'auth, oauth2-proxy ne verrait que "/" et renverrait
+      # l'utilisateur ailleurs apres login.
+      - traefik.http.routers.opsconsole.rule=Host(`home.maxibestof.com`) && PathPrefix(`/ops`)
+      - traefik.http.routers.opsconsole.entrypoints=websecure
+      - traefik.http.routers.opsconsole.tls.certresolver=le
+      - traefik.http.routers.opsconsole.priority=290
+      - traefik.http.routers.opsconsole.middlewares=oauth-auth@docker,ops-strip@docker
 
   glances:
     image: nicolargo/glances:latest-full

@@ -23,6 +23,10 @@ radarr:
       - trash_id: 1addc08c4232bc2617684d517df15f75  # [French VOSTFR] HD Bluray + WEB
         reset_unmatched_scores:
           enabled: true
+          # Le CF maison "Executable (malware)" (-10000) n'est pas gere par TRaSH :
+          # sans cette exception, le sync nocturne remettrait son score a 0.
+          except:
+            - Executable (malware)
 
 sonarr:
   series:
@@ -39,3 +43,7 @@ sonarr:
       - trash_id: b34c968f58433a38e0e690d42a1dc37e  # [French VOSTFR] HD Bluray + WEB (1080p)
         reset_unmatched_scores:
           enabled: true
+          # Le CF maison "Executable (malware)" (-10000) n'est pas gere par TRaSH :
+          # sans cette exception, le sync nocturne remettrait son score a 0.
+          except:
+            - Executable (malware)

@@ -1,0 +1,3 @@
+# Statut des conteneurs (voyants verts) via le socket docker
+my-docker:
+  socket: /var/run/docker.sock

@@ -1,0 +1,17 @@
+title: MaxiBestOf — Home
+theme: dark
+color: slate
+headerStyle: clean
+layout:
+  VPN & Réseau:
+    style: row
+    columns: 2
+  Ressources serveur:
+    style: row
+    columns: 4
+  Média & Téléchargements:
+    style: row
+    columns: 4
+  Jellyfin:
+    style: row
+    columns: 1

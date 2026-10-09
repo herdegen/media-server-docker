@@ -12,7 +12,7 @@ DISK_MOUNT="/mnt/media"
 DISK_THRESHOLD=90
 GLUETUN_CTRL="http://172.17.0.1:8000/v1/publicip/ip"
 GLUETUN_AUTH="/srv/docker/gluetun/auth/config.toml"
-EXPECTED_CONTAINERS="gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr"
+EXPECTED_CONTAINERS="gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr ops-console romarr lidarr slskd soularr"
 
 # --- Secrets ntfy (topic + token), hors git ---
 # shellcheck disable=SC1091
@@ -90,4 +90,33 @@ elif [ -n "$host_ip" ] && [ "$vpn_ip" = "$host_ip" ]; then
     "L'IP VPN ($vpn_ip) = l'IP réelle du serveur. Le trafic ne passe peut-être plus par le VPN !" urgent rotating_light
 else
   notify_change vpnip ok "IP VPN" "IP VPN OK ($vpn_ip)."
+fi
+
+# --- 5. Payloads exécutables dans les téléchargements (malware déguisé en média) ---
+# Vu le 2026-09-18 : 6 torrents "Ted Lasso / Slow Horses / Futurama ...1080p...exe"
+# grabbés par Sonarr depuis des indexeurs publics. Un fichier vidéo ne finit JAMAIS
+# par .exe. Prévention à la source = custom format "Executable (malware)" scoré
+# -10000 dans Sonarr/Radarr ; cette section est le filet de sécurité.
+# Depuis le 2026-10-08, la suppression est automatique : c'est malware-guard.sh
+# (malware-guard.timer, toutes les 5 min) qui retire le torrent, blackliste la
+# release dans Sonarr/Radarr et relance une recherche. Cette section n'est plus
+# que le FILET : si elle alerte encore, c'est que malware-guard a échoué
+# (RPC injoignable, *arr down…) -> voir alerts/malware-guard.log.
+DANGEROUS_EXT='exe|scr|bat|cmd|com|msi|pif|lnk|vbs|vbe|wsf|wsh|ps1'
+bad_files=$(find /mnt/media/downloads -type f -regextype posix-extended \
+              -iregex ".*\.($DANGEROUS_EXT)$" 2>/dev/null)
+if [ -n "$bad_files" ]; then
+  n=$(printf '%s\n' "$bad_files" | wc -l)
+  liste=$(printf '%s\n' "$bad_files" | head -5 | sed 's|.*/||' | sed 's/^/• /')
+  # Empreinte de la liste dans l'état : chaque nouveau fichier relance une alerte
+  # (avant : une seule alerte tant que le 1er fichier n'était pas supprimé).
+  fp=$(printf '%s\n' "$bad_files" | sort | md5sum | cut -c1-12)
+  notify_change payload "bad:$fp" "Fichier exécutable dans les downloads" \
+    "$n fichier(s) suspect(s) — probable malware déguisé en vidéo :
+$liste
+malware-guard devait les supprimer et n'a pas réussi : vérifie
+alerts/malware-guard.log. Ne JAMAIS ouvrir ces fichiers." \
+    urgent biohazard
+else
+  notify_change payload ok "Downloads" "Plus aucun exécutable suspect dans /mnt/media/downloads."
 fi

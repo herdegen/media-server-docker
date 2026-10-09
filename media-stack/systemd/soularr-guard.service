@@ -1,0 +1,8 @@
+[Unit]
+Description=Stoppe Soularr si Lidarr surveille trop d'albums manquants
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/media-stack/soularr-guard.sh

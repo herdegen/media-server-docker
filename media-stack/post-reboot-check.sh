@@ -18,7 +18,7 @@ for u in claude-rc-mcp claude-rc-media-stack claude-rc-memorylane claude-rc-rcet
 done
 
 echo "== Conteneurs Docker"
-for c in gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr rcette-db memorylane_app memorylane_nginx memorylane_postgres memorylane_redis memorylane_horizon memorylane_scheduler memorylane_meilisearch; do
+for c in gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr lidarr romarr rcette-db memorylane_app memorylane_nginx memorylane_postgres memorylane_redis memorylane_horizon memorylane_scheduler memorylane_meilisearch; do
   st=$(sudo docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || echo absent)
   if [ "$st" = running ]; then ok "$c"; else ko "$c ($st)"; fi
 done

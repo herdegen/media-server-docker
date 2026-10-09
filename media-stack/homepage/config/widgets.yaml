@@ -1,0 +1,6 @@
+- logo:
+    icon: jellyfin.png
+
+- greeting:
+    text_size: xl
+    text: MaxiBestOf

@@ -60,6 +60,48 @@ http:
       tls:
         certResolver: le
 
+    romarr:
+      rule: "Host(`romarr.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: romarr
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    romarr-oauth:
+      rule: "Host(`romarr.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+    lidarr:
+      rule: "Host(`lidarr.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: lidarr
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    lidarr-oauth:
+      rule: "Host(`lidarr.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
+    slskd:
+      rule: "Host(`slskd.maxibestof.com`)"
+      entryPoints: [websecure]
+      service: slskd
+      middlewares: ["oauth-auth@docker"]
+      tls:
+        certResolver: le
+    slskd-oauth:
+      rule: "Host(`slskd.maxibestof.com`) && PathPrefix(`/oauth2/`)"
+      entryPoints: [websecure]
+      service: oauth@docker
+      tls:
+        certResolver: le
+
   services:
     radarr:
       loadBalancer:
@@ -77,3 +119,15 @@ http:
       loadBalancer:
         servers:
           - url: "http://172.17.0.1:9091"
+    romarr:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:6868"
+    lidarr:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:8686"
+    slskd:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:5030"

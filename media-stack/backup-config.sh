@@ -35,12 +35,15 @@ notify_fail() {
 mkdir -p "$WORK/dump/arr" "$WORK/dump/jellyfin"
 
 # --- 1. Bases *arr : copie cohérente à chaud via sqlite3 .backup ---
-for app in radarr sonarr prowlarr; do
+for app in radarr sonarr prowlarr lidarr; do
   db="/var/lib/$app/$app.db"
   [ -f "$db" ] && { sqlite3 "$db" ".backup '$WORK/dump/arr/$app.db'" || notify_fail "Échec dump SQLite $app"; }
   cp -a "/var/lib/$app/config.xml" "$WORK/dump/arr/$app.config.xml" 2>/dev/null || true
 done
 cp -a /var/lib/transmission-daemon/settings.json "$WORK/dump/arr/transmission.settings.json" 2>/dev/null || true
+cp -a /var/lib/romarr "$WORK/dump/arr/romarr" 2>/dev/null || true
+cp -a /var/lib/slskd/slskd.yml "$WORK/dump/arr/slskd.yml" 2>/dev/null || true
+cp -a /var/lib/soularr/config.ini "$WORK/dump/arr/soularr.config.ini" 2>/dev/null || true
 
 # --- 2. Jellyfin : base bibliothèque + configs plugins + /etc ---
 sqlite3 /var/lib/jellyfin/data/jellyfin.db ".backup '$WORK/dump/jellyfin/jellyfin.db'" 2>/dev/null \
@@ -49,6 +52,9 @@ cp -a /var/lib/jellyfin/data/glacier_items.json "$WORK/dump/jellyfin/" 2>/dev/nu
 cp -a /etc/jellyfin "$WORK/dump/jellyfin/etc-jellyfin" 2>/dev/null || true
 mkdir -p "$WORK/dump/jellyfin/plugin-configs"
 cp -a /var/lib/jellyfin/plugins/configurations/. "$WORK/dump/jellyfin/plugin-configs/" 2>/dev/null || true
+# Moonbase : garder saves/ et réglages, pas les caches reconstructibles (jaquettes, cœurs EmulatorJS ~290 Mo)
+rm -rf "$WORK/dump/jellyfin/plugin-configs/Moonfin/"{game_thumbs,studio_logos,gamemeta,emulatorjs} \
+       "$WORK/dump/jellyfin/plugin-configs/Moonfin/"*_cache.json
 
 # --- 3. Stack (configs + scripts), hors logs/node_modules/zip ---
 tar czf "$WORK/dump/stack.tar.gz" -C / \
