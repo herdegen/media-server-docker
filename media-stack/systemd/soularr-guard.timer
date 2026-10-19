@@ -2,6 +2,10 @@
 Description=Garde-fou Soularr chaque minute
 
 [Timer]
+# 1 min et PAS 5 : Soularr tourne toutes les 300 s (SCRIPT_INTERVAL). Un garde-fou
+# au même rythme, non synchronisé, perdrait la course une fois sur deux et
+# laisserait Soularr télécharger la dérive (incident 2026-10-09 : originaux
+# supprimés par Lidarr). Coût d'un passage : < 1 s, un GET sur l'API Lidarr.
 OnBootSec=1min
 OnUnitActiveSec=1min
 AccuracySec=10s

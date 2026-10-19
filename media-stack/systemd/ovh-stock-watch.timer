@@ -1,0 +1,10 @@
+[Unit]
+Description=Lance ovh-stock-watch.sh toutes les 15 min
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

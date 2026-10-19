@@ -1,0 +1,13 @@
+[Unit]
+Description=Surveille le stock Kimsufi KS-5 3x4To / KS-STOR (France) -> ntfy
+After=network-online.target
+# Échec (API OVH cassée > ~3 h, timeout) -> notif ntfy avec la fin du journal.
+OnFailure=ntfy-fail@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/media-stack/ovh-stock-watch.sh
+# Deux appels HTTP (30 s max chacun) : 5 min = très largement au-dessus du normal.
+TimeoutStartSec=5min
+NoNewPrivileges=yes
+PrivateTmp=yes

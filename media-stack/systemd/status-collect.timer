@@ -1,0 +1,11 @@
+[Unit]
+Description=Page de statut : collecte toutes les 2 min
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=status-collect.service
+
+[Install]
+WantedBy=timers.target

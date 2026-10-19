@@ -1,0 +1,19 @@
+[Unit]
+Description=Collecte de la page de statut (status.json + notifs ntfy sur transition)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /srv/media-stack/status-collect.py
+# Collecte typique < 5 s (premiere passe, caches froids) puis < 1 s.
+TimeoutStartSec=110
+Nice=10
+IOSchedulingClass=idle
+# root requis : smartctl, sshd -T, docker, cles Glacier du plugin, .env.
+# On limite tout de meme ce qu'il peut ecrire.
+ProtectSystem=strict
+ReadWritePaths=/srv/media-stack/status
+PrivateTmp=true
+ProtectHome=read-only
+NoNewPrivileges=true

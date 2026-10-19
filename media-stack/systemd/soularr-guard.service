@@ -1,5 +1,5 @@
 [Unit]
-Description=Stoppe Soularr si Lidarr surveille trop d'albums manquants
+Description=Garde-fou Soularr : désurveille la dérive Lidarr (stoppe Soularr si liste blanche KO)
 After=docker.service
 Wants=docker.service
 

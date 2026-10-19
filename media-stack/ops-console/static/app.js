@@ -779,9 +779,22 @@ function rain() {
 
 loadWorld();
 rain();
-clock(); setInterval(clock, 1000);
-tick(); setInterval(tick, POLL_MS);
-loadGlacier(); setInterval(loadGlacier, 600000);   // meme cadence que le cache serveur
+/* Onglet cache = plus aucun polling (avant : un fetch /api/state toutes les
+   2 s meme en arriere-plan, soit ~43 000 requetes/jour par onglet oublie).
+   Au retour, on rafraichit tout de suite au lieu d'attendre le prochain tour. */
+var timers = [];
+function every(fn, ms) { fn(); timers.push(setInterval(fn, ms)); }
+function startPolling() {
+  if (timers.length) return;
+  every(clock, 1000);
+  every(tick, POLL_MS);
+  every(loadGlacier, 600000);   // meme cadence que le cache serveur
+}
+function stopPolling() { timers.forEach(clearInterval); timers = []; }
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden) stopPolling(); else startPolling();
+});
+if (!document.hidden) startPolling(); else { clock(); tick(); loadGlacier(); }
 addEventListener("resize", function () {
   drawCpu(); drawMem(); drawNet();
 }, { passive: true });

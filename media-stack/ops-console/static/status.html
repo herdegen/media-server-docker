@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>maxibestof — statut</title>
+<link rel="stylesheet" href="/_ops/style.css">
+<link rel="stylesheet" href="/_ops/status.css">
+</head>
+<body class="status-page">
+<canvas id="rain" aria-hidden="true"></canvas>
+
+<header class="bar">
+  <div class="brand">STATUT<span class="caret">_</span></div>
+  <div class="bar-right">
+    <div class="kv"><span class="k">collecte</span><span class="v" id="gen">—</span></div>
+    <div class="kv"><span class="k">hôte</span><span class="v" id="host">—</span></div>
+    <div class="kv"><span class="k">flux</span><span class="v" id="link-state">connexion…</span></div>
+    <div class="kv"><span class="k">console</span><a class="v navlink" href="/">ops ↗</a></div>
+  </div>
+</header>
+
+<main class="st-main">
+  <section class="panel wide st-hero" id="hero" data-state="unknown">
+    <div class="st-hero-l">
+      <div class="k">état global</div>
+      <div class="st-overall" id="overall">—</div>
+      <div class="sub" id="overall-sub">—</div>
+    </div>
+    <div class="st-counts" aria-label="Répartition des contrôles">
+      <div class="st-count ok"><span class="n" id="n-ok">—</span><span class="k">ok</span></div>
+      <div class="st-count warn"><span class="n" id="n-warn">—</span><span class="k">alerte</span></div>
+      <div class="st-count crit"><span class="n" id="n-crit">—</span><span class="k">critique</span></div>
+      <div class="st-count unknown"><span class="n" id="n-unknown">—</span><span class="k">inconnu</span></div>
+    </div>
+  </section>
+
+  <div class="panel wide st-stale" id="stale" role="alert" hidden>
+    <span class="wtag">COLLECTEUR</span>
+    <span id="stale-txt">—</span>
+  </div>
+
+  <div class="st-tools">
+    <button type="button" class="gbtn" id="btn-open">tout déplier</button>
+    <button type="button" class="gbtn" id="btn-close">tout replier</button>
+    <button type="button" class="gbtn" id="btn-problems">problèmes seulement</button>
+  </div>
+
+  <div id="groups" class="st-groups"></div>
+
+  <section class="panel wide" id="p-notify">
+    <h2>notifications push</h2>
+    <p class="st-p">Le collecteur pousse une notification <b>uniquement au changement d'état</b> :
+      passage en <span class="t-crit">critique</span> (priorité haute, après 2 collectes
+      consécutives, immédiat pour RAID, sauvegarde, fuite VPN et port exposé) puis
+      <span class="t-ok">retour à la normale</span> (priorité basse). Les alertes simples
+      restent visibles ici sans notification.</p>
+    <div id="notify-box" class="st-notify">
+      <p class="st-p sub" id="notify-missing">Topic indisponible (page non servie derrière l'OAuth, ou NTFY_TOPIC absent).</p>
+    </div>
+    <ol class="st-steps">
+      <li>Installer l'application <b>ntfy</b> (Android : F-Droid / Play Store ; iOS : App Store).</li>
+      <li>Ouvrir le lien « app » ci-dessus depuis le téléphone, ou « + » → s'abonner au topic,
+          serveur <span class="mono" id="notify-server">ntfy.sh</span>.</li>
+      <li>Si le topic est réservé : renseigner l'identifiant / jeton ntfy dans Réglages → Utilisateurs.</li>
+    </ol>
+    <p class="st-p sub">Le topic est un secret : ne pas le partager, ne pas le coller dans un ticket.</p>
+  </section>
+</main>
+
+<script src="/_ops/status.js"></script>
+</body>
+</html>

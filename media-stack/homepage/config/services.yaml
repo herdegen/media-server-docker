@@ -1,3 +1,36 @@
+- Santé serveur:
+    - Statut:
+        icon: mdi-heart-pulse
+        href: https://home.maxibestof.com/status
+        description: RAID, backups, VPN, certificats, ports… (collecte 2 min)
+        # Lu en direct sur ops-net (pas d'OAuth, pas de topic ntfy dans ce resume).
+        # overall = stale si status.json a plus de 5 min (collecteur mort).
+        widget:
+          type: customapi
+          url: http://ops-console:8080/api/status/summary
+          refreshInterval: 60000
+          method: GET
+          mappings:
+            - field: overall
+              label: État
+              remap:
+                - value: ok
+                  to: OK
+                - value: warn
+                  to: ALERTE
+                - value: crit
+                  to: CRITIQUE
+                - value: stale
+                  to: MUET
+                - any: true
+                  to: "?"
+            - field: ok
+              label: OK
+            - field: warn
+              label: Alerte
+            - field: crit
+              label: Critique
+
 - VPN & Réseau:
     - VPN (NordVPN):
         icon: gluetun.png

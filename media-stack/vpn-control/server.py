@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """Mini panneau de contrôle VPN gluetun (switch provider + pays).
 Protégé en amont par oauth2-proxy (forwardAuth Traefik). Stdlib only."""
-import http.server, socketserver, subprocess, urllib.parse, urllib.request, os, json, html
+import http.server, socketserver, subprocess, urllib.parse, urllib.request, os, json, html, threading
 
 STACK = "/srv/media-stack"
 VPN_DIR = os.path.join(STACK, "vpn")
 ACTIVE = os.path.join(VPN_DIR, "active.env")
 APIKEY_FILE = "/gluetun-auth/.apikey.txt"
 PORT = 8080
+PROVIDERS = ("nordvpn", "mullvad")
+# Seule origine autorisée pour un POST : bloque un formulaire posté depuis un autre
+# *.maxibestof.com (le cookie OAuth est SameSite=lax sur tout le domaine).
+ALLOWED_ORIGIN = "https://home.maxibestof.com"
+# Une bascule à la fois : deux POST simultanés lançaient deux `compose up` en parallèle.
+SWITCH_LOCK = threading.Lock()
 
 # Pays NordVPN proposés (libellés acceptés par gluetun SERVER_COUNTRIES)
 COUNTRIES = ["France", "Switzerland", "Netherlands", "Germany", "Romania",
@@ -47,7 +53,32 @@ def public_ip():
         return {}
 
 
+def netns_services():
+    """Services en network_mode service:gluetun : à recréer quand gluetun l'est,
+    sinon ils restent accrochés à l'ancien netns (plus de réseau ni de ports)."""
+    r = subprocess.run(["docker", "compose", "config", "--format", "json"], cwd=STACK,
+                       check=True, capture_output=True, text=True, timeout=60)
+    svcs = json.loads(r.stdout)["services"]
+    return sorted(n for n, d in svcs.items() if d.get("network_mode") == "service:gluetun")
+
+
 def do_switch(provider, country):
+    # Liste blanche stricte : provider servait à construire un chemin (../ → copie du
+    # .env principal) et country était écrit tel quel dans active.env (un \n permettait
+    # d'injecter n'importe quelle variable gluetun, ex. un endpoint WireGuard tiers).
+    if provider not in PROVIDERS:
+        return False, "Fournisseur inconnu"
+    if provider == "nordvpn" and country not in COUNTRIES:
+        return False, "Pays non proposé"
+    if not SWITCH_LOCK.acquire(blocking=False):
+        return False, "Une bascule est déjà en cours"
+    try:
+        return _do_switch(provider, country)
+    finally:
+        SWITCH_LOCK.release()
+
+
+def _do_switch(provider, country):
     preset = os.path.join(VPN_DIR, provider + ".env")
     if not os.path.exists(preset):
         return False, "Preset introuvable : " + provider
@@ -60,8 +91,11 @@ def do_switch(provider, country):
                 out.append(line)
     if provider == "nordvpn" and not set_c and country:
         out.append("SERVER_COUNTRIES=%s\n" % country)
-    with open(ACTIVE, "w") as f:
+    tmp = ACTIVE + ".tmp"
+    with open(tmp, "w") as f:
         f.writelines(out)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, ACTIVE)
     try:
         subprocess.run(["docker", "compose", "up", "-d", "gluetun"], cwd=STACK,
                        check=True, capture_output=True, text=True, timeout=120)
@@ -76,9 +110,12 @@ def do_switch(provider, country):
     if not healthy:
         return False, ("gluetun pas healthy (tunnel KO ?). "
                        "Si Mullvad : abonnement expiré. Vérifier: docker logs gluetun")
-    subprocess.run(["docker", "compose", "up", "-d", "flaresolverr", "prowlarr",
-                    "sonarr", "radarr", "transmission"], cwd=STACK,
-                   capture_output=True, text=True, timeout=180)
+    try:
+        subprocess.run(["docker", "compose", "up", "-d", "--force-recreate", "--no-deps"]
+                       + netns_services(), cwd=STACK,
+                       check=True, capture_output=True, text=True, timeout=300)
+    except subprocess.CalledProcessError as e:
+        return False, "gluetun OK mais relance des services KO : " + (e.stderr or str(e))[:300]
     return True, "Bascule effectuée sur %s%s." % (provider, " / " + country if provider == "nordvpn" else "")
 
 
@@ -117,7 +154,7 @@ button.alt{{background:#475569;margin-top:8px}} .muted{{color:#64748b;font-size:
   <button name="provider" value="nordvpn">Appliquer NordVPN</button>
   <button class="alt" name="provider" value="mullvad">Basculer sur Mullvad (⚠ abonnement à vérifier)</button>
 </form>
-<p class="muted">Le changement recrée gluetun (~20 s) et relance transmission + *arr.</p>
+<p class="muted">Le changement recrée gluetun (~20 s) puis tous les services qui passent par le VPN.</p>
 </body></html>""".format(dot=dot, banner=banner, provider=html.escape(provider),
                           country=html.escape(country), health=html.escape(health),
                           ip=html.escape(ip.get("public_ip", "—")),
@@ -138,10 +175,16 @@ class H(http.server.BaseHTTPRequestHandler):
         self._send(page())
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
+        origin = self.headers.get("Origin") or self.headers.get("Referer", "")
+        if not (origin == ALLOWED_ORIGIN or origin.startswith(ALLOWED_ORIGIN + "/")):
+            return self._send(page("Origine refusée", False), 403)
+        # Posé par oauth2-proxy via Traefik : absent = requête qui n'est pas passée par l'OAuth
+        if not self.headers.get("X-Auth-Request-User"):
+            return self._send(page("Non authentifié", False), 403)
+        length = min(int(self.headers.get("Content-Length", 0)), 4096)
         data = urllib.parse.parse_qs(self.rfile.read(length).decode())
-        provider = data.get("provider", ["nordvpn"])[0]
-        country = data.get("country", ["Romania"])[0]
+        provider = data.get("provider", [""])[0]
+        country = data.get("country", [""])[0]
         ok, msg = do_switch(provider, country)
         self._send(page(msg, ok))
 

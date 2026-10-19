@@ -1,0 +1,14 @@
+# En-têtes de sécurité appliqués à TOUT le trafic HTTPS (middleware d'entrypoint
+# websecure, ajouté 2026-10-13). Pas d'includeSubDomains/preload sur HSTS : on ne
+# maîtrise pas forcément tous les sous-domaines de maxibestof.com.
+http:
+  middlewares:
+    sec-headers:
+      headers:
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+        customFrameOptionsValue: SAMEORIGIN
+        customResponseHeaders:
+          X-Powered-By: ""
+          Server: ""

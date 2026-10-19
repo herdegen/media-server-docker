@@ -270,16 +270,20 @@ services:
       - no-new-privileges:true
 
   traefik:
-    image: traefik:v3
+    image: traefik:v3.7.14  # épinglé 2026-10-13 (était v3 flottant)
     container_name: traefik
     command:
-      - --log.level=DEBUG
+      - --log.level=INFO
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.file.directory=/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
+      # Tout le HTTP part en HTTPS (le challenge ACME reste servi en priorité par Traefik)
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.middlewares=sec-headers@file
       - --certificatesresolvers.le.acme.email=${LE_EMAIL}
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.httpchallenge=true
@@ -294,11 +298,12 @@ services:
       - ./traefik/dynamic:/dynamic:ro
     networks:
       - traefik-proxy
+      - ops-net
     restart: unless-stopped
 
 
   oauth2-proxy:
-    image: quay.io/oauth2-proxy/oauth2-proxy:latest
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5  # épinglé 2026-10-13
     container_name: oauth2-proxy
     env_file: ./oauth2-proxy.env
     networks:
@@ -346,6 +351,9 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - traefik-proxy
+      # tuile "Statut" : lit http://ops-console:8080/api/status/summary (sans OAuth,
+      # sans topic). Homepage a deja docker.sock : aucun privilege en plus.
+      - ops-net
     restart: unless-stopped
     labels:
       - traefik.enable=true
@@ -374,16 +382,21 @@ services:
     container_name: vpn-control
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /srv/media-stack:/srv/media-stack
+      # Stack en lecture seule (compose a besoin du compose + .env), écriture
+      # limitée à vpn/ (active.env) — avant : tout /srv/media-stack en écriture.
+      - /srv/media-stack:/srv/media-stack:ro
+      - /srv/media-stack/vpn:/srv/media-stack/vpn
       - /srv/docker/gluetun/auth/.apikey.txt:/gluetun-auth/.apikey.txt:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Réseau dédié avec Traefik : sur traefik-proxy, n'importe quel conteneur
+    # (memorylane, mandrillcomics…) pouvait le joindre sans passer par l'OAuth.
     networks:
-      - traefik-proxy
+      - ops-net
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.docker.network=traefik-proxy
+      - traefik.docker.network=ops-net
       - traefik.http.services.vpnctl.loadbalancer.server.port=8080
       # /vpn sur home.maxibestof.com, protégé par le même OAuth, préfixe strippé
       - traefik.http.middlewares.vpn-strip.stripprefix.prefixes=/vpn
@@ -391,7 +404,8 @@ services:
       - traefik.http.routers.vpnctl.entrypoints=websecure
       - traefik.http.routers.vpnctl.tls.certresolver=le
       - traefik.http.routers.vpnctl.priority=200
-      - traefik.http.routers.vpnctl.middlewares=vpn-strip@docker,oauth-auth@docker
+      # OAuth AVANT le strip : sinon le skip-auth ^/health$ matchait /vpn/health
+      - traefik.http.routers.vpnctl.middlewares=oauth-auth@docker,vpn-strip@docker
 
   # Console d'ops graphique : /ops sur home.maxibestof.com (meme OAuth que le
   # dashboard). Agrege Glances + le control server gluetun cote serveur, car
@@ -409,19 +423,26 @@ services:
       - SCW_SECRET_KEY=${SCW_SECRET_KEY}
       - SCW_REGION=${SCW_REGION}
       - GLACIER_BUCKET=jellyfin-glacier
+      # Page /status : topic ntfy affiche UNIQUEMENT aux requetes passees par
+      # l'OAuth (X-Auth-Request-User pose par Traefik). Jamais journalise.
+      - NTFY_TOPIC=${NTFY_TOPIC}
     # memes cles que Homepage (sonarr/radarr/prowlarr/jellyfin) : pas de
     # duplication de secrets, le fichier reste hors git.
     env_file: ./homepage.env
     volumes:
       - /srv/docker/gluetun/auth/.apikey.txt:/gluetun-auth/.apikey.txt:ro
+      # status.json ecrit par status-collect.py (root, timer 2 min). On monte le
+      # DOSSIER, pas le fichier : le collecteur remplace status.json par rename
+      # atomique, un bind de fichier resterait colle a l'ancien inode.
+      - /srv/media-stack/status:/status-data:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - traefik-proxy
+      - ops-net
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.docker.network=traefik-proxy
+      - traefik.docker.network=ops-net
       - traefik.http.services.opsconsole.loadbalancer.server.port=8080
       - traefik.http.middlewares.ops-strip.stripprefix.prefixes=/ops
       #
@@ -449,6 +470,16 @@ services:
       - traefik.http.routers.opsassets.priority=300
       - traefik.http.routers.opsassets.service=opsconsole
       - traefik.http.routers.opsassets.middlewares=oauth-auth@docker
+      # 2bis) page de statut + son API, servies a leur vrai chemin -> PAS de
+      # strip (comme opsroot/opsassets ; seul l'alias /ops est strippe).
+      # /api/status/summary n'a pas besoin de ce routeur : Homepage le lit en
+      # direct via ops-net (http://ops-console:8080).
+      - traefik.http.routers.opsstatus.rule=Host(`home.maxibestof.com`) && (Path(`/status`) || PathPrefix(`/status/`) || PathPrefix(`/api/status`))
+      - traefik.http.routers.opsstatus.entrypoints=websecure
+      - traefik.http.routers.opsstatus.tls.certresolver=le
+      - traefik.http.routers.opsstatus.priority=300
+      - traefik.http.routers.opsstatus.service=opsconsole
+      - traefik.http.routers.opsstatus.middlewares=oauth-auth@docker
       # 3) /ops conserve comme alias historique
       # ORDRE DES MIDDLEWARES : Traefik les applique de gauche a droite. Si le
       # strip passait avant l'auth, oauth2-proxy ne verrait que "/" et renverrait
@@ -534,3 +565,6 @@ networks:
   traefik-proxy:
     external: true
     name: traefik-proxy
+  # Traefik ↔ vpn-control / ops-console uniquement (panneaux sensibles)
+  ops-net:
+    name: ops-net

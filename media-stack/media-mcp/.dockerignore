@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+node_modules
+index.js.*
+*.bak*
+.git
+npm-debug.log

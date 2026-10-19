@@ -8,9 +8,10 @@ Internet) et la cle du control server gluetun ne doit pas finir dans du JS.
 """
 import http.server, socketserver, urllib.request, urllib.error, urllib.parse
 import json, os, time, threading, posixpath, hashlib, hmac, datetime
+import concurrent.futures as cf
 import xml.etree.ElementTree as ET
 
-PORT = 8080
+PORT = int(os.environ.get("PORT", "8080"))
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 GLANCES = os.environ.get("GLANCES_URL", "http://host.docker.internal:61208/api/4")
 GLUETUN = os.environ.get("GLUETUN_URL", "http://host.docker.internal:8000")
@@ -47,14 +48,37 @@ JF_AUTH = {"Authorization": 'MediaBrowser Token="%s"' % K_JELLYFIN}
 DISK_MOUNT = "/mnt/media"
 DISK_WARN = 90
 MEM_WARN = 90
-EXPECTED = ("gluetun flaresolverr prowlarr sonarr radarr transmission media-mcp "
-            "traefik oauth2-proxy homepage vpn-control glances bazarr jellyseerr ops-console").split()
+# Meme liste que les container_name du docker-compose.yml (lidarr, slskd,
+# soularr, romarr manquaient : leur panne passait inapercue ici).
+EXPECTED = ("gluetun flaresolverr prowlarr sonarr radarr transmission lidarr slskd "
+            "soularr romarr media-mcp traefik oauth2-proxy homepage vpn-control "
+            "ops-console glances bazarr jellyseerr").split()
+
+# Page /status : JSON ecrit par status-collect.py (hote, root) et monte en :ro.
+STATUS_JSON = os.environ.get("STATUS_JSON", "/status-data/status.json")
+STATUS_STALE_S = 300            # > 5 min sans collecte = collecteur mort
+# Topic ntfy : affiche UNIQUEMENT sur /api/status derriere l'OAuth (jamais
+# journalise, jamais dans /api/status/summary lu par Homepage).
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+NTFY_SERVER = os.environ.get("NTFY_SERVER", "ntfy.sh")
+# Seule origine autorisee pour les POST (anti-CSRF same-site).
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "https://home.maxibestof.com")
+
+FAST_TTL = 2.0                  # Glances : courbes temps reel
+SLOW_TTL = 45.0                 # *arr / Transmission / Jellyfin / gluetun / S3
+GEO_TTL, GEO_MAX = 6 * 3600, 256
 
 _cache = {"ts": 0.0, "data": None}
+_slow = {"ts": 0.0, "data": None}
 _glacier = {"ts": 0.0, "data": None}
-_geo = {}                      # ip -> dict, pour ne pas requeter ipinfo a chaque vue
+_geo = {}                      # ip -> (ts, dict) : borne a GEO_MAX, TTL GEO_TTL
 _lock = threading.Lock()
+_slock = threading.Lock()
 _glock = threading.Lock()
+_geolock = threading.Lock()
+# Appels sortants en parallele : un service lent (timeout 6 s) ne retarde plus
+# les autres, et la latence d'un cycle = celle du plus lent, pas la somme.
+_pool = cf.ThreadPoolExecutor(max_workers=20, thread_name_prefix="poll")
 
 
 def _get(url, headers=None, timeout=6):
@@ -228,8 +252,11 @@ def viewer_geo(ip):
     """Geoloc du visiteur, mise en cache : une seule sortie vers ipinfo par IP."""
     if not ip or ip.startswith(("10.", "192.168.", "172.", "127.")):
         return {"ip": ip, "private": True}
-    if ip in _geo:
-        return _geo[ip]
+    now = time.time()
+    with _geolock:
+        hit = _geo.get(ip)
+        if hit and now - hit[0] < GEO_TTL:
+            return hit[1]
     g = {"ip": ip}
     try:
         d = _get("https://ipinfo.io/%s/json" % ip, timeout=5)
@@ -240,7 +267,14 @@ def viewer_geo(ip):
                   "lon": float(lon) if lon else None})
     except Exception:
         pass
-    _geo[ip] = g
+    with _geolock:
+        _geo[ip] = (now, g)
+        # purge : entrees expirees, puis les plus anciennes au-dela de GEO_MAX
+        for k in [k for k, v in _geo.items() if now - v[0] >= GEO_TTL]:
+            _geo.pop(k, None)
+        if len(_geo) > GEO_MAX:
+            for k, _ in sorted(_geo.items(), key=lambda kv: kv[1][0])[:len(_geo) - GEO_MAX]:
+                _geo.pop(k, None)
     return g
 
 
@@ -327,21 +361,6 @@ def _item_size(item_id):
         pass
     _size_cache[item_id] = res
     return res
-
-
-_arch_cache = {"ts": 0.0, "data": []}
-
-
-def archives_cached():
-    """Cache dedie : un upload de plusieurs Go compte des milliers de parts,
-    on ne relance pas ListParts a chaque cycle de 2 s."""
-    if time.time() - _arch_cache["ts"] > 5.0:
-        try:
-            _arch_cache["data"] = archives_in_flight()
-        except Exception:
-            _arch_cache["data"] = []
-        _arch_cache["ts"] = time.time()
-    return _arch_cache["data"]
 
 
 def archives_in_flight():
@@ -529,17 +548,74 @@ def build_checks(cpu, load, mem, tmp, fs, vpn, containers):
     return out
 
 
+def _gather(jobs, timeout):
+    """Lance {cle: (fn, args, defaut)} en parallele ; un job trop lent ou en
+    erreur rend son defaut au lieu de bloquer le cycle."""
+    futs = {k: _pool.submit(fn, *args) for k, (fn, args, _) in jobs.items()}
+    out = {}
+    for k, f in futs.items():
+        try:
+            out[k] = f.result(timeout=timeout)
+        except Exception:
+            out[k] = jobs[k][2]
+    return out
+
+
+def _refresh_slow():
+    try:
+        r = _gather({
+            "sonarr": (svc_sonarr, (), {"up": False}),
+            "radarr": (svc_radarr, (), {"up": False}),
+            "prowlarr": (svc_prowlarr, (), {"up": False}),
+            "transmission": (svc_transmission, (), {"up": False}),
+            "jellyfin": (svc_jellyfin, (), {"up": False}),
+            "vpn": (vpn_info, (), {"error": "timeout"}),
+            "archiving": (archives_in_flight, (), []),
+        }, timeout=20)
+        _slow["data"] = r
+        _slow["ts"] = time.time()
+    finally:
+        _slock.release()
+
+
+def slow_part():
+    """Services *arr, Transmission, Jellyfin, gluetun, S3 : cache SLOW_TTL.
+    Rafraichi en ARRIERE-PLAN par un seul thread : les courbes Glances (2 s)
+    n'attendent jamais un service lent ; on sert la valeur precedente.
+    Seul le tout premier appel attend (rien a servir sinon)."""
+    if _slow["data"] is not None and time.time() - _slow["ts"] < SLOW_TTL:
+        return _slow["data"]
+    first = _slow["data"] is None
+    if _slock.acquire(blocking=first):
+        if first and _slow["data"] is not None:      # un autre thread a fini entre-temps
+            _slock.release()
+        elif first:
+            _refresh_slow()                          # libere le verrou
+        else:
+            threading.Thread(target=_refresh_slow, daemon=True).start()
+    return _slow["data"]
+
+
 def snapshot():
-    """Un seul aller-retour vers Glances par cycle, cache 2 s."""
-    cpu = glances("cpu", {}) or {}
-    load = glances("load", {}) or {}
-    mem = glances("mem", {}) or {}
-    tmp = temps(glances("sensors", []))
-    net = net_rates(glances("network", []))
-    fs = media_fs(glances("fs", []))
-    containers = glances("containers", []) or []
-    upt = glances("uptime", "")
-    vpn = vpn_info()
+    """Glances (cache FAST_TTL) en parallele + partie lente mise en cache."""
+    g = _gather({
+        "cpu": (glances, ("cpu", {}), {}),
+        "load": (glances, ("load", {}), {}),
+        "mem": (glances, ("mem", {}), {}),
+        "sensors": (glances, ("sensors", []), []),
+        "network": (glances, ("network", []), []),
+        "fs": (glances, ("fs", []), []),
+        "containers": (glances, ("containers", []), []),
+        "uptime": (glances, ("uptime", ""), ""),
+    }, timeout=7)
+    sl = slow_part()
+    cpu, load, mem = g["cpu"] or {}, g["load"] or {}, g["mem"] or {}
+    tmp = temps(g["sensors"])
+    net = net_rates(g["network"])
+    fs = media_fs(g["fs"])
+    containers = g["containers"] or []
+    upt = g["uptime"]
+    vpn = sl["vpn"]
     return {
         "ts": time.time(),
         "cpu": {"total": cpu.get("total") or 0, "user": cpu.get("user") or 0,
@@ -553,18 +629,22 @@ def snapshot():
         "vpn": vpn, "server": SERVER_GEO,
         "uptime": upt if isinstance(upt, str) else "",
         "containers": [{"name": c.get("name"), "status": c.get("status")} for c in containers],
-        "archiving": archives_cached(),
-        "services": {"sonarr": svc_sonarr(), "radarr": svc_radarr(),
-                     "prowlarr": svc_prowlarr(), "transmission": svc_transmission(),
-                     "jellyfin": svc_jellyfin()},
+        "archiving": sl["archiving"],
+        "services": {k: sl[k] for k in ("sonarr", "radarr", "prowlarr", "transmission", "jellyfin")},
         "checks": build_checks(cpu, load, mem, tmp, fs, vpn, containers),
         "thresholds": {"disk_warn": DISK_WARN, "mem_warn": MEM_WARN},
     }
 
 
 def cached():
-    with _lock:
-        if _cache["data"] is None or time.time() - _cache["ts"] > 2.0:
+    """Un seul rafraichissement a la fois ; pendant ce temps les autres
+    requetes repartent avec la derniere valeur connue (pas d'attente)."""
+    if _cache["data"] is not None and time.time() - _cache["ts"] <= FAST_TTL:
+        return _cache["data"]
+    if not _lock.acquire(blocking=_cache["data"] is None):
+        return _cache["data"]
+    try:
+        if _cache["data"] is None or time.time() - _cache["ts"] > FAST_TTL:
             try:
                 _cache["data"] = snapshot()
                 _cache["ts"] = time.time()
@@ -572,6 +652,45 @@ def cached():
                 if _cache["data"] is None:
                     _cache["data"] = {"error": "%s: %s" % (type(e).__name__, e)}
         return _cache["data"]
+    finally:
+        _lock.release()
+
+
+def status_payload(authed):
+    """Lit le JSON du collecteur et ajoute l'age (detection collecteur mort)."""
+    try:
+        with open(STATUS_JSON, "rb") as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return {"error": "status.json absent : collecteur jamais lance ?",
+                "stale": True, "age_s": None}
+    except Exception as e:
+        return {"error": "status.json illisible : %s" % type(e).__name__,
+                "stale": True, "age_s": None}
+    age = time.time() - float(d.get("generated_ts") or 0)
+    d["age_s"] = int(age)
+    d["stale"] = age > STATUS_STALE_S
+    if authed and NTFY_TOPIC:
+        d["notify"] = {"server": NTFY_SERVER, "topic": NTFY_TOPIC,
+                       "https": "https://%s/%s" % (NTFY_SERVER, NTFY_TOPIC),
+                       "app": "ntfy://%s/%s" % (NTFY_SERVER, NTFY_TOPIC)}
+    return d
+
+
+def status_summary():
+    """Resume minimal pour la tuile Homepage (customapi). Jamais le topic."""
+    d = status_payload(False)
+    s = dict(d.get("summary") or {})
+    for k in ("ok", "warn", "crit", "unknown", "total"):
+        s.setdefault(k, 0)
+    if d.get("error"):
+        s["overall"] = "stale"
+    elif d.get("stale"):
+        s["overall"] = "stale"
+    s.setdefault("overall", "unknown")
+    s["age_min"] = round((d.get("age_s") or 0) / 60.0, 1) if d.get("age_s") is not None else None
+    s["generated"] = d.get("generated")
+    return s
 
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
@@ -594,12 +713,30 @@ class H(http.server.BaseHTTPRequestHandler):
             return xff.split(",")[0].strip()
         return self.headers.get("X-Real-IP") or self.client_address[0]
 
+    def _same_origin(self):
+        """Anti-CSRF : le cookie OAuth est SameSite, mais un sous-domaine
+        compromis (*.maxibestof.com = meme "site") pourrait encore poster.
+        On exige donc Origin (ou a defaut Referer) == home.maxibestof.com."""
+        origin = self.headers.get("Origin")
+        if origin:
+            return origin.rstrip("/") == ALLOWED_ORIGIN
+        ref = self.headers.get("Referer") or ""
+        return ref == ALLOWED_ORIGIN or ref.startswith(ALLOWED_ORIGIN + "/")
+
     def do_POST(self):
         path = self.path.split("?")[0]
         if path.startswith("/ops/"):
             path = path[4:]
         if path != "/api/glacier/archive":
             return self._send(404, '{"error":"not found"}', "application/json")
+        if not self._same_origin():
+            return self._send(403, '{"ok":false,"error":"origine refusee"}', "application/json")
+        # application/json impose un preflight CORS : un <form> cross-site ne
+        # peut pas l'envoyer (text/plain, urlencoded et multipart sont refuses).
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return self._send(415, '{"ok":false,"error":"Content-Type application/json requis"}',
+                              "application/json")
         try:
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
@@ -638,6 +775,17 @@ class H(http.server.BaseHTTPRequestHandler):
             d = dict(cached())
             d["viewer"] = viewer_geo(self.client_ip())
             return self._send(200, json.dumps(d), "application/json; charset=utf-8")
+        if path in ("/api/status", "/api/status/"):
+            # X-Auth-Request-* est pose par Traefik (forwardAuth, ecrase toute
+            # valeur envoyee par le client) : present = requete passee par l'OAuth.
+            authed = bool(self.headers.get("X-Auth-Request-User")
+                          or self.headers.get("X-Auth-Request-Email"))
+            return self._send(200, json.dumps(status_payload(authed)),
+                              "application/json; charset=utf-8")
+        if path in ("/api/status/summary", "/api/status/summary/"):
+            return self._send(200, json.dumps(status_summary()), "application/json; charset=utf-8")
+        if path in ("/status", "/status/"):
+            path = "/status.html"
         if path in ("/api/glacier", "/api/glacier/"):
             return self._send(200, json.dumps(glacier_cached()), "application/json; charset=utf-8")
         if path in ("/health", "/healthz"):
@@ -665,4 +813,4 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 if __name__ == "__main__":
-    Server(("", PORT), H).serve_forever()
+    Server((os.environ.get("BIND", ""), PORT), H).serve_forever()

@@ -4,6 +4,34 @@ Historique des modifications apportées au stack média.
 
 ---
 
+## 2026-10-15
+
+### Surveillance du stock Kimsufi (`ovh-stock-watch.sh`)
+
+- Contexte : `/mnt/media` à 91 %. Décision : migrer vers un **KS-5 en 3×4 To + 32 Go** (26,99 € HT, ~7,3 To en RAID5, même prix que le KS-5 actuel en 2×2 To à 33,10 € TTC) ou un **KS-STOR** (4×4 ou 4×6 To) dès qu'un des deux revient en stock en France. Aucun des deux n'est disponible aujourd'hui (le bouton de commande affichait « disponible » à tort). En attendant : plus d'archivage Glacier.
+- `ovh-stock-watch.sh` + `ovh-stock-watch.timer` (toutes les 15 min) : interroge l'API publique OVH `/dedicated/server/datacenter/availabilities` (`planCode` `24sk50-v1` et `24skstor01-v1`, datacentres gra/rbx/sbg) → ntfy (priorité haute, clic vers la page de commande) **uniquement au changement d'état**. État dans `alerts/state/ovh-stock-*`. Une panne passagère de l'API est ignorée ; après 12 échecs d'affilée (~3 h) → `OnFailure=ntfy-fail`. Test sans notification : `ovh-stock-watch.sh --dry-run`.
+- À désactiver une fois le serveur commandé : `systemctl disable --now ovh-stock-watch.timer`.
+
+## 2026-10-14
+
+### Musique : `SERVEUR_MAJ_MATIN.tsv`
+
+- 443 déplacements appliqués (dont 4 sources renommées localement retrouvées par tags/nom : Amado mio, Malagueña, Amicalement vôtre, Hot Chocolate). `Orel Songs/` et `musique/` supprimés ; `Musique diverses/` conservé (6 fichiers à attribuer : 4 « tonton flingueurs », 2 « My Recording »).
+- Restes des dossiers supprimés → `/mnt/media/.music-trash-20261014/` (pochettes, Slai *Flamme*, *Ne rentre pas chez toi ce soir*, Zouk pistes 13/14/16, *Heartbreaker*).
+- Absents du serveur, à envoyer : Coldplay *Clocks*, Bach *Prelude in C major*, Chopin *Nocturne op. 9 n° 2*.
+- Journal : `/var/lib/media-reorg/journal-maj-20261014.tsv`. Lidarr : 369 pistes importées, 3 nouveaux artistes désurveillés.
+
+## 2026-10-13
+
+### Musique : instructions de `~/musique`
+
+- Appliqué depuis `/home/matthieu/musique` : 130 déplacements (`1_deplacements_serveur.tsv`, surtout des « Unknown Artist » identifiés), 83 fichiers retirés (`2_a_supprimer_serveur.txt`) **mis de côté** dans `/mnt/media/.music-trash-20261013/` (à vider après vérification), 406 ajouts copiés (`3_a_envoyer/` + 168 dossiers d'artistes à la racine ; source laissée intacte). 2 doublons exacts (empreinte audio) non copiés. Journal : `/var/lib/media-reorg/journal-musique-20261013.tsv`.
+- Lidarr : 165 pistes importées, 18 nouveaux artistes créés → désurveillés.
+
+### soularr-guard v2
+
+- La v1 a stoppé Soularr le 2026-10-10 17:45 (48 albums Mozart & co. re-surveillés par le refresh Lidarr) → récupération en pause 3 jours sans que ce soit remarqué. v2 : au-delà de 20 albums hors liste approuvée, **désurveille ces albums** et notifie, Soularr continue ; stoppe Soularr seulement si le retrait échoue.
+
 ## 2026-10-09
 
 ### Lidarr/Soularr : incident et garde-fou
@@ -20,6 +48,33 @@ Historique des modifications apportées au stack média.
 - `_restes_serveur` trié puis **supprimé** : déchets (`.ini`, `Thumbs.db`, `.itc2`, 787 `.bc!`, AppleDouble `._*`, iTunes, `.ipa`, pochettes, fichiers de rip) = 28,4 Go libérés ; 91 audio + 15 modules vérifiés **doublons exacts** (empreinte du flux audio via ffmpeg, tags exclus) puis supprimés. Liste complète : `/var/lib/media-reorg/dechets_supprimes-20261009.txt`.
 - Restaurés dans la bibliothèque : `Daft Punk/Random Access Memories (2013)` (seul exemplaire, fichiers « - Copie » renommés) et `MaXi Compil` (compilation conservée à la demande, morceaux aussi présents par artiste). À répercuter en local.
 - 3 MP3 vides (0 octet) supprimés : Funkadelic *Uncle Jam Wants You* pistes 4 et 5 (désormais manquantes), ELO `Send It~#~.mp3` (doublon cassé ; *Balance of Power* est complet et vérifié au décodage).
+
+---
+
+## 2026-10-13
+
+### Glacier
+
+- *Il était une fois en Amérique* retiré partout : l'archive 1080p fonctionnait (placeholder local), le film « encore présent » était une **seconde copie 360p orpheline** (inconnue de Radarr). Suppression Radarr (+ exclusion), disque, objet S3 et entrée `glacier_items.json`.
+- Incident : le restart de Jellyfin nécessaire à cette édition a **tué 5 uploads en cours** (L'Empire contre-attaque, 99 Francs, Godzilla Minus One, Her, Tron : L'Héritage). Aucune perte (fichier local supprimé seulement après succès) ; multipart orphelins annulés, archivages relancés et terminés.
+- **Plugin 1.2.0.0** : archivage / restauration d'une **saison entière** (boutons sur la page saison), espace réellement libéré affiché (hardlinks de seed exclus), file d'upload 2 en parallèle, garde-fou anti-upload de placeholder, ré-archivage d'un item restauré, badges sur la liste d'épisodes. Commit `541ed29` dans `/opt/jellyfin-glacier-plugin`. Ancien plugin conservé dans `plugins-disabled-pre12/Glacier_1.1.0.0-bak-20261013`.
+
+### Audit de sécurité et corrections (soir)
+
+Revue complète de notre code et de l'infra (4 revues parallèles), puis corrections :
+
+- 🔴 **rcette-db** publié sur `0.0.0.0:5432` (220 557 tentatives de login, rôle superuser, mot de passe faible) → bindé sur `127.0.0.1`. Pas de trace d'intrusion visible. Mot de passe/superuser : changement en attente.
+- 🔴 **Garde-fou `DOCKER-USER`** (`docker-user-guard.service`) : depuis Internet, seuls 80/443 atteignent un conteneur (Docker contournait nftables).
+- 🔴 **oauth2-proxy** acceptait n'importe quel compte GitHub → `GITHUB_USERS=herdegen`, cookie secret renouvelé, `TRUSTED_PROXY_IPS`. Client secret GitHub à régénérer (exposé dans un transcript local pendant l'audit).
+- 🔴 **media-mcp** public sans auth → token obligatoire (Bearer ou chemin secret), un serveur MCP par requête (plus de crash sur requêtes concurrentes), timeouts axios, erreurs sans URL interne, root folders/profil lus via l'API, validation des URL torrent, deps à jour (`npm audit` 0), image non-root.
+- 🔴 **vpn-control** : injection possible dans `active.env` / traversée de chemin via `provider` → liste blanche, verrou, contrôle d'origine, écriture atomique, recréation des 9 services du netns, montage `:ro` sauf `vpn/`, réseau isolé `ops-net` (avec ops-console).
+- 🔴 **malware-guard** : la blacklist post-hook n'avait jamais fonctionné (0 item sur 4) → passage par `/history` + `history/failed`. Les 2 faux du jour (Slow Horses S06E05/E06) blacklistés.
+- **Glacier 1.3.0.0** : archivage admin seulement, base JSON jamais écrasée (lecture seule si corrompue, écriture atomique), restauration reprise après interruption + garde-fou upgrade Sonarr/Radarr, objet S3 vérifié avant suppression locale, tests xUnit. Règle de cycle de vie S3 (multipart orphelins annulés après 2 j). 1re restauration réelle lancée (OSS 117).
+- **Page de statut** `home.maxibestof.com/status` + `status-collect.timer` (65 contrôles, ntfy sur transition) ; `media-alert.timer` (alert-check) désactivé. `ntfy-fail@` sur échec de nos services + timeouts.
+- **Sauvegarde** : + Jellyseerr, Bazarr, slskd/soularr, pare-feu, fail2ban, unités systemd ; archive vérifiée avant/après envoi ; passphrase GPG hors ligne de commande ; `RESTORE.md`.
+- Traefik : HTTP→HTTPS, en-têtes de sécurité, logs INFO, version épinglée (oauth2-proxy aussi). fail2ban jellyfin réparé (journal + ban dans DOCKER-USER). SSH `PermitRootLogin no`. Secrets en 600 ; scripts lancés par root passés root:root. LLMNR coupé. Variables VPN mortes retirées de `.env`.
+- Scripts : hook `DRY=1` vraiment sans effet + dates UTC, `vpn-switch.sh` recrée tout le netns, `soularr-guard` ne désurveille plus tout si sa liste manque, `post-reboot-check` (RAID exact, plus de `compose up` global). Scripts HEVC archivés dans `archive/2026-04-hevc/`.
+- Port 8096 (Jellyfin HTTP direct) laissé ouvert **en observation** (compteur + log) avant fermeture.
 
 ---
 

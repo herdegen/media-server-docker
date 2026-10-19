@@ -3,6 +3,9 @@ theme: dark
 color: slate
 headerStyle: clean
 layout:
+  Santé serveur:
+    style: row
+    columns: 1
   VPN & Réseau:
     style: row
     columns: 2
