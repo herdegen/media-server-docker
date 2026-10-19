@@ -5,6 +5,8 @@
  * v4 : boutons d'archivage réservés aux admins (le serveur refuse aussi), type d'item via
  *      /Glacier/info (plus de bouton sur les séries/collections), délai de restauration
  *      annoncé par le serveur, poll suspendu onglet caché, file d'upload pollée seulement si utile.
+ * v5 : bouton de filtre dans les bibliothèques (Tout / Sur le serveur / Glacier), d'après les
+ *      tags « Glacier » / « Local » posés par le plugin ≥ 1.4.0.0 (séries et saisons comprises).
  */
 (function () {
     'use strict';
@@ -323,16 +325,107 @@
         }
     }
 
+
+    // --- Filtre Tout / Sur le serveur / Glacier (v5) ---------------------------------
+    // S'appuie sur les tags du plugin ≥ 1.4 : « Local » (lisible sur le serveur) et « Glacier »
+    // (archivé) ; une série partiellement archivée porte les deux et reste visible dans les deux vues.
+    // Masque les cartes de la page courante : la pagination de Jellyfin n'est pas recalculée.
+    const FILTER_KEY = 'glacierLibraryFilter';
+    const FILTERS = {
+        all: { label: 'Tout', icon: '🗂️', title: 'Afficher tout' },
+        local: { label: 'Sur le serveur', icon: '💾', title: 'Masquer ce qui est sur Glacier' },
+        glacier: { label: 'Glacier', icon: '❄️', title: 'N\'afficher que ce qui est sur Glacier' }
+    };
+    const TAG_REFRESH_MS = 120000;
+    let tagSets = { Glacier: null, Local: null, at: 0, loading: false };
+
+    function currentFilter() {
+        const f = localStorage.getItem(FILTER_KEY);
+        return FILTERS[f] ? f : 'all';
+    }
+
+    function loadTagSets(force) {
+        if (tagSets.loading || (!force && tagSets.Glacier && Date.now() - tagSets.at < TAG_REFRESH_MS)) return;
+        tagSets.loading = true;
+        const q = '/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&EnableImages=false&EnableUserData=false&Fields=&Tags=';
+        Promise.all([api(q + 'Glacier'), api(q + 'Local')]).then(function (r) {
+            tagSets.Glacier = new Set((r[0] && r[0].Items || []).map(function (i) { return normId(i.Id); }));
+            tagSets.Local = new Set((r[1] && r[1].Items || []).map(function (i) { return normId(i.Id); }));
+            tagSets.at = Date.now();
+            applyLibraryFilter();
+        }).catch(function (e) { console.log('[Glacier] erreur tags:', e); })
+          .then(function () { tagSets.loading = false; });
+    }
+
+    function applyLibraryFilter() {
+        const f = currentFilter();
+        if (f !== 'all') loadTagSets(false);
+        const want = f === 'local' ? tagSets.Local : f === 'glacier' ? tagSets.Glacier : null;
+        document.querySelectorAll('.card[data-id]').forEach(function (card) {
+            const id = normId(card.getAttribute('data-id'));
+            // Seuls les items connus (films, séries, saisons, épisodes tagués) sont filtrés
+            const known = tagSets.Glacier && (tagSets.Glacier.has(id) || tagSets.Local.has(id));
+            const hide = !!(want && known && !want.has(id));
+            if (hide !== card.classList.contains('glacier-filtered')) {
+                card.classList.toggle('glacier-filtered', hide);
+                card.style.display = hide ? 'none' : '';
+            }
+        });
+        applyFilterButton();
+    }
+
+    // Bouton « Filtrer » de la page : .btnFilter (ancienne interface) ou, en Jellyfin 12 (React/MUI),
+    // le bouton dont le libellé d'accessibilité est « Filter » / « Filtrer » (selon la langue).
+    const FILTER_LABELS = ['filter', 'filtrer', 'filtres', 'filters'];
+    // Cherché dans tout le document : en Jellyfin 12 la barre d'outils est hors du conteneur .page.
+    function findFilterButton() {
+        const legacy = Array.prototype.find.call(document.querySelectorAll('.page:not(.hide) .btnFilter'), function (x) { return x.offsetParent; });
+        if (legacy) return legacy;
+        return Array.prototype.find.call(document.querySelectorAll('button[aria-label], button[title]'), function (x) {
+            return x.offsetParent && FILTER_LABELS.indexOf((x.getAttribute('aria-label') || x.title || '').trim().toLowerCase()) !== -1;
+        }) || null;
+    }
+
+    function applyFilterButton() {
+        // Bouton placé juste avant le groupe « Filtrer / Trier » des pages de bibliothèque
+        const filterBtn = findFilterButton();
+        if (!filterBtn) { document.querySelectorAll('.glacier-filter-btn').forEach(function (b) { b.remove(); }); return; }
+        // En MUI le bouton est dans un ButtonGroup : on se place à côté du groupe, pas dedans
+        const anchor = filterBtn.parentElement && filterBtn.parentElement.className.indexOf('MuiButtonGroup') !== -1 ? filterBtn.parentElement : filterBtn;
+        const f = currentFilter();
+        let b = anchor.parentNode.querySelector(':scope > .glacier-filter-btn');
+        document.querySelectorAll('.glacier-filter-btn').forEach(function (x) { if (x !== b) x.remove(); });
+        if (!b) {
+            b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'glacier-filter-btn emby-button button-flat';
+            b.style.cssText = 'margin:0 .5em;padding:.35em .9em;border-radius:1em;font-size:.9em;white-space:nowrap;border:1px solid rgba(255,255,255,.25);color:inherit;background:transparent;cursor:pointer;';
+            b.addEventListener('click', function () {
+                const order = ['all', 'local', 'glacier'];
+                localStorage.setItem(FILTER_KEY, order[(order.indexOf(currentFilter()) + 1) % order.length]);
+                if (currentFilter() !== 'all') loadTagSets(true);
+                applyLibraryFilter();
+            });
+            anchor.parentNode.insertBefore(b, anchor);
+        }
+        if (b.dataset.state !== f) {
+            b.dataset.state = f;
+            b.innerHTML = FILTERS[f].icon + ' ' + FILTERS[f].label;
+            b.title = FILTERS[f].title + ' (cliquer pour changer)';
+            b.style.background = f === 'all' ? 'transparent' : 'rgba(0,164,220,.3)';
+        }
+    }
+
     // Pilotage par observation du DOM (débounce léger), sans hashchange
     let pending = false;
     function scheduleApply() {
         if (pending) return;
         pending = true;
-        setTimeout(function () { pending = false; applyBadges(); applyDetailButton(); }, 200);
+        setTimeout(function () { pending = false; applyBadges(); applyDetailButton(); applyLibraryFilter(); }, 200);
     }
     new MutationObserver(scheduleApply).observe(document.body, { childList: true, subtree: true });
 
-    console.log('[Glacier] Script chargé ✅ (v4 / admin, /Glacier/info)');
+    console.log('[Glacier] Script chargé ✅ (v5 / filtre Tout · Sur le serveur · Glacier)');
 
     function waitForReady(cb, n) {
         n = n || 0;
